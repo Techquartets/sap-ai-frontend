@@ -1,14 +1,7 @@
-/**
- * securityAPI.js
- * FIX: toggleUserLockAPI now returns { id, newStatus } — slice needs newStatus to update state.
- * FIX: deleteUserAPI returns id directly (was already correct).
- * All mutations applied to module-level `sessions` array so they persist across calls.
- */
+const API_ROOT =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-/**
- * securityAPI.js
- * UPDATED: Added localStorage persistence for sessions
- */
+const BASE_URL = `${API_ROOT}/sap`;
 
 export const AVAILABLE_ROLES = [
   "Admin",
@@ -18,96 +11,152 @@ export const AVAILABLE_ROLES = [
   "Task Processor",
 ];
 
-// ✅ LOAD FROM LOCAL STORAGE (fallback to default)
-let sessions = JSON.parse(localStorage.getItem("sessions")) || [
-  { id:1, email:"admin@corp.com",          role:"Admin",          ip:"10.0.1.45", loginTime:"14:23", status:"Active" },
-  { id:2, email:"m.johnson@corp.com",      role:"Investigator",   ip:"10.0.1.89", loginTime:"09:30", status:"Active" },
-  { id:3, email:"r.chen@corp.com",         role:"Investigator",   ip:"10.0.1.92", loginTime:"08:45", status:"Active" },
-  { id:4, email:"s.williams@corp.com",     role:"Investigator",   ip:"10.0.1.93", loginTime:"09:00", status:"Active" },
-  { id:5, email:"task.processor@corp.com", role:"Task Processor", ip:"10.0.1.91", loginTime:"07:00", status:"Active" },
-];
+async function parseJson(response) {
+  const data = await response.json();
 
-let failedLogins = [
-  { id:1, email:"unknown@test.com", ip:"192.168.1.1", attempts:5, lastAttempt:"14:20", blocked:true  },
-  { id:2, email:"admin@test.com",   ip:"192.168.1.2", attempts:3, lastAttempt:"13:45", blocked:false },
-];
+  if (!response.ok) {
+    throw new Error(
+      data.message || data.error || `Request failed (${response.status})`
+    );
+  }
 
-const delay = (data) => new Promise(res => setTimeout(() => res(data), 200));
+  return data;
+}
 
-const formatName = (email) =>
-  email.split("@")[0].split(".").map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
+// ─────────────────────────────────────────────
+// SECURITY STATS
+// ─────────────────────────────────────────────
 
-export const fetchSecurityStatsAPI = () =>
-  delay({
-    activeSessions: sessions.filter(s => s.status === "Active").length,
-    failedLogins1h: failedLogins.length,
-    wafBlocked:     127,
-    dlpAlerts:      0,
+export const fetchSecurityStatsAPI = async () => {
+  const response = await fetch(`${BASE_URL}/security/stats/`);
+  const data = await parseJson(response);
+  return data.stats;
+};
+
+// ─────────────────────────────────────────────
+// FETCH ACTIVE USERS (sessions table)
+// ─────────────────────────────────────────────
+
+export const fetchActiveSessionsAPI = async () => {
+  const response = await fetch(`${BASE_URL}/security/users/`);
+  const data = await parseJson(response);
+  return data.users;
+};
+
+// ─────────────────────────────────────────────
+// FETCH FAILED LOGINS
+// ─────────────────────────────────────────────
+
+export const fetchFailedLoginsAPI = async () => {
+  const response = await fetch(`${BASE_URL}/security/failed-logins/`);
+  const data = await parseJson(response);
+  return data.failedLogins;
+};
+
+// ─────────────────────────────────────────────
+// FETCH USERS
+// ─────────────────────────────────────────────
+
+export const fetchUsersAPI = async () => {
+  const response = await fetch(`${BASE_URL}/security/users/`);
+  const data = await parseJson(response);
+  return data.users;
+};
+
+// ─────────────────────────────────────────────
+// CREATE USER
+// ─────────────────────────────────────────────
+
+export const createUserAPI = async (payload) => {
+  const response = await fetch(`${BASE_URL}/security/users/create/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: payload.email,
+      password: payload.password,
+      role: payload.role,
+      name: payload.name,
+    }),
   });
 
-export const fetchActiveSessionsAPI = () => delay([...sessions]);
+  const data = await parseJson(response);
+  return data.user;
+};
 
-export const fetchFailedLoginsAPI = () => delay([...failedLogins]);
+// ─────────────────────────────────────────────
+// TOGGLE USER LOCK
+// ─────────────────────────────────────────────
 
-export const fetchUsersAPI = () =>
-  delay(sessions.map(s => ({ ...s, name: formatName(s.email), lastLogin: s.loginTime })));
-
-// ── toggle lock ──
-export const toggleUserLockAPI = (id) => {
-  const session = sessions.find(s => s.id === id);
-  if (!session) return delay({ id, newStatus: "Active" });
-
-  const newStatus = session.status === "Active" ? "Locked" : "Active";
-
-  sessions = sessions.map(s =>
-    s.id === id ? { ...s, status: newStatus } : s
+export const toggleUserLockAPI = async (id) => {
+  const response = await fetch(
+    `${BASE_URL}/security/users/${id}/toggle-lock/`,
+    {
+      method: "PATCH",
+    }
   );
 
-  // ✅ SAVE
-  localStorage.setItem("sessions", JSON.stringify(sessions));
+  const data = await response.json();
 
-  return delay({ id, newStatus });
-};
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to toggle user lock");
+  }
 
-// ── delete ──
-export const deleteUserAPI = (id) => {
-  sessions = sessions.filter(s => s.id !== id);
-
-  // ✅ SAVE
-  localStorage.setItem("sessions", JSON.stringify(sessions));
-
-  return delay(id);
-};
-
-// ── update ──
-export const updateUserAPI = (id, payload) => {
-  sessions = sessions.map(s =>
-    s.id === id ? { ...s, ...payload } : s
-  );
-
-  // ✅ SAVE
-  localStorage.setItem("sessions", JSON.stringify(sessions));
-
-  return delay({ id, ...payload });
-};
-
-// ── create ──
-export const createUserAPI = (payload) => {
-  const newUser = {
-    id:        Date.now(),
-    email:     payload.email,
-    role:      payload.role,
-    ip:        "10.0.0.0",
-    loginTime: "--:--",
-    status:    "Active",
-    name:      payload.name,
-    lastLogin: "--:--",
+  return {
+    id: data.id ?? id,
+    newStatus: data.newStatus,
   };
+};
 
-  sessions = [newUser, ...sessions];
+// ─────────────────────────────────────────────
+// DELETE USER
+// ─────────────────────────────────────────────
 
-  // ✅ SAVE
-  localStorage.setItem("sessions", JSON.stringify(sessions));
+export const deleteUserAPI = async (id) => {
+  const response = await fetch(
+    `${BASE_URL}/security/users/${id}/delete/`,
+    {
+      method: "DELETE",
+    }
+  );
 
-  return delay(newUser);
+  await parseJson(response);
+  return id;
+};
+
+// ─────────────────────────────────────────────
+// TOGGLE FAILED LOGIN BLOCK
+// ─────────────────────────────────────────────
+
+export const toggleFailedLoginBlockAPI = async (id) => {
+  const response = await fetch(
+    `${BASE_URL}/security/failed-logins/${id}/toggle-block/`,
+    {
+      method: "PATCH",
+    }
+  );
+
+  const data = await parseJson(response);
+  return data.data;
+};
+
+// ─────────────────────────────────────────────
+// UPDATE USER
+// ─────────────────────────────────────────────
+
+export const updateUserAPI = async (id, payload) => {
+  const response = await fetch(
+    `${BASE_URL}/security/users/${id}/update/`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  const data = await parseJson(response);
+  return data.user;
 };

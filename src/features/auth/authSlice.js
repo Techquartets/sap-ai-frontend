@@ -4,13 +4,32 @@ import { loginAPI } from "./authAPI";
 const storedUser = JSON.parse(localStorage.getItem("user"));
 
 export const login = createAsyncThunk(
+
   "auth/login",
+
   async ({ email, password }, { rejectWithValue }) => {
+
     try {
-      const res = await loginAPI(email, password);
-      return res.data;
+
+      const res = await loginAPI(
+        email,
+        password
+      );
+
+      if (!res.success) {
+
+        return rejectWithValue(
+          res.error || "Login failed"
+        );
+      }
+
+      return res.user;
+
     } catch (err) {
-      return rejectWithValue("Login failed");
+
+      return rejectWithValue(
+        err.message || "Login failed"
+      );
     }
   }
 );
