@@ -42,6 +42,7 @@ import {
   UploadSimple,
 } from "@phosphor-icons/react";
 import { Server } from "lucide-react";
+import { CaseModal } from "../../pages/caseManagement";
 // ✅ NEW: Import backend services if not passed as props
 import { ruleService } from "../../services/ruleService";
 import apiClient from "../../services/apiClient";
@@ -926,6 +927,7 @@ function DeploySuccessModal() {
 function AnomaliesModal() {
   const dispatch = useAppDispatch();
   const { modalData } = useAppSelector((s) => s.rules);
+  const [investigationCaseId, setInvestigationCaseId] = React.useState(null);
 //   const [anomalies] = React.useState(
 //   Array.isArray(modalData?.anomalies)
 //     ? modalData.anomalies.map(normalizeAnomaly)
@@ -1056,11 +1058,17 @@ function AnomaliesModal() {
     return d.toLocaleString();
   };
 
+  const openCaseInvestigation = (caseId) => {
+    if (!caseId || caseId === "N/A") return;
+    setInvestigationCaseId(caseId);
+  };
+
   const rows = anomalies;
   const visibleRows = rows.slice(0, 10);
 
   return (
-    <Modal onClose={() => dispatch(closeModal())} width="max-w-6xl">
+    <>
+    <Modal onClose={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} width="max-w-6xl">
       <div className="px-8 pt-6 pb-4 border-b border-white/10 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">
@@ -1071,7 +1079,7 @@ function AnomaliesModal() {
           </div>
           <p className="text-xs text-[var(--muted)] mt-2">{rows.length || Number(count) || 0} cases detected in simulation</p>
         </div>
-        <button onClick={() => dispatch(closeModal())} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
+        <button onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
           <X size={18} />
         </button>
       </div>
@@ -1119,7 +1127,14 @@ function AnomaliesModal() {
                   <CaretRight size={14} />
                 </td>
                 <td className="px-3 py-3.5">
-                  <span className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer">{anom.caseId}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openCaseInvestigation(anom.caseId); }}
+                    disabled={!anom.caseId || anom.caseId === "N/A"}
+                    className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer disabled:text-[var(--muted)] disabled:no-underline disabled:cursor-default"
+                  >
+                    {anom.caseId}
+                  </button>
                 </td>
                 <td className="px-3 py-3.5">
                   <span className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer">{anom.transactionId}</span>
@@ -1160,13 +1175,21 @@ function AnomaliesModal() {
       <div className="px-8 py-3 border-t border-white/10 flex items-center justify-between">
         <p className="text-xs text-[var(--muted)]">Showing {rows.length} detected fraud cases</p>
         <button
-          onClick={() => dispatch(closeModal())}
+          onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }}
           className="px-6 py-2.5 rounded-lg bg-slate-700/40 hover:bg-slate-700/60 text-[var(--text)] text-sm font-semibold transition-colors"
         >
           Close
         </button>
       </div>
     </Modal>
+    {investigationCaseId && (
+      <CaseModal
+        caseId={investigationCaseId}
+        onClose={() => setInvestigationCaseId(null)}
+        onUpdate={() => {}}
+      />
+    )}
+    </>
   );
 }
 
