@@ -876,7 +876,7 @@ export default function CaseManagement() {
             const caseId = a.caseId || a.case_id || `C-${8000 + idx}`;
             const amountValue = Number(a.amount?.value ?? a.Amount ?? a.amount ?? 0) || 0;
             const currency = a.amount?.currency || a.Currency || a.currency || "USD";
-            const title = `${a.vendorName || a.vendor_name || 'Unknown Vendor'} - ${amountValue.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${currency}`;
+            const title = `${a.vendorName || a.vendor || 'Unknown Vendor'} - ${amountValue.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${currency}`;
             
             return {
               id: caseId,

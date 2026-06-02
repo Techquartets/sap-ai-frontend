@@ -421,6 +421,7 @@ export default function AIRuleArchitect() {
  const handleSaveToLibrary = useCallback(async () => {
   const currentRule = lastRule || (() => {
     const message = [...messages].reverse().find(m => m.type === "rule_result");
+    console.log("Deriving current rule from message:", message); // Debug log
     if (!message) return null;
     return {
       module: message.module || "FI",
@@ -440,9 +441,9 @@ export default function AIRuleArchitect() {
   const latestRuleMessage = [...messages].reverse().find(m => m.type === "rule_result");
   const resolvedDynamicParameters = normalizeDynamicParameters(
     currentRule?.dynamicParameters ||
-    latestRuleMessage?.dynamicParameters ||
-    latestRuleMessage?.parameters ||
-    latestRuleMessage?.PARAMETERS ||
+    // latestRuleMessage?.dynamicParameters ||
+    // latestRuleMessage?.parameters ||
+    // latestRuleMessage?.PARAMETERS ||
     {}
   );
 

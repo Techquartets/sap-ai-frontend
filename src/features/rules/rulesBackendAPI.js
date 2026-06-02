@@ -188,18 +188,17 @@ export const deployRuleToEnvAPI = async (ruleId, environment) => {
 
  // Extract view name from cdsCode line like: "define view XXXXXXX"
 const extractedViewName = rule.cdsCode
-  ?.match(/define\s+view\s+([A-Z0-9_]+)/i)?.[1]
-  ?.replace(/^Z/i, "") // remove leading Z
-  ?.replace(/_+$/, "")
-  ?.toLowerCase();
+  ?.match(/define\s+view(?:\s+entity)?\s+([A-Z0-9_]+)/i)?.[1]
+  ?.replace(/_+$/, ""); // remove trailing underscores only
 
 const viewName =
   extractedViewName ||
   rule.name
     ?.replace(/[^A-Z0-9]/gi, "_")
-    ?.toLowerCase()
+    ?.replace(/_+$/, "") // remove trailing underscores
+    ?.toUpperCase()
     ?.substring(0, 24) ||
-  `ZRULE_${ruleId}`;
+  `ZAI_RULE_${ruleId}`;
 
 const payload = {
   cdsCode: rule.cdsCode || "",

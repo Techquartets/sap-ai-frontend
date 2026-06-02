@@ -926,9 +926,15 @@ function DeploySuccessModal() {
 function AnomaliesModal() {
   const dispatch = useAppDispatch();
   const { modalData } = useAppSelector((s) => s.rules);
-  const [anomalies, setAnomalies] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState(null);
+//   const [anomalies] = React.useState(
+//   Array.isArray(modalData?.anomalies)
+//     ? modalData.anomalies.map(normalizeAnomaly)
+//     : []
+// );
+  // const [loading, setLoading] = React.useState(true);
+  const loading = false;
+  const error = null;
+  // const [error, setError] = React.useState(null);
 
   if (!modalData) return null;
 
@@ -956,53 +962,58 @@ function AnomaliesModal() {
       detectedAt: raw.detectedAt || raw.detected_at || raw.created_at || raw.timestamp || new Date().toISOString(),
     };
   }, []);
+  const anomalies = React.useMemo(() => {
+  return Array.isArray(modalData?.anomalies)
+    ? modalData.anomalies.map(normalizeAnomaly)
+    : [];
+}, [modalData?.anomalies, normalizeAnomaly]);
 
   // Fetch anomalies from backend when modal opens
-  React.useEffect(() => {
-    let mounted = true;
+  // React.useEffect(() => {
+  //   let mounted = true;
 
-    const fetchAnomalies = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  //   const fetchAnomalies = async () => {
+  //     try {
+  //       setLoading(true);
+  //       setError(null);
         
-        const params = new URLSearchParams();
-        if (ruleId && String(ruleId).trim()) params.append("rule_id", String(ruleId).trim());
-        if (simId && String(simId).trim()) params.append("sim_id", String(simId).trim());
-        params.append("limit", "100");
+  //       const params = new URLSearchParams();
+  //       if (ruleId && String(ruleId).trim()) params.append("rule_id", String(ruleId).trim());
+  //       if (simId && String(simId).trim()) params.append("sim_id", String(simId).trim());
+  //       params.append("limit", "100");
         
-        const url = `/sap/anomalies/detected/?${params.toString()}`;
-        const response = await apiClient.get(url);
-        const data = response?.data || {};
-        const sourceList = Array.isArray(data.anomalies)
-          ? data.anomalies
-          : Array.isArray(data.data)
-            ? data.data
-            : Array.isArray(data.results)
-              ? data.results
-              : [];
+  //       const url = `/sap/anomalies/detected/?${params.toString()}`;
+  //       const response = await apiClient.get(url);
+  //       const data = response?.data || {};
+  //       const sourceList = Array.isArray(data.anomalies)
+  //         ? data.anomalies
+  //         : Array.isArray(data.data)
+  //           ? data.data
+  //           : Array.isArray(data.results)
+  //             ? data.results
+  //             : [];
         
-        if (data.status && data.status !== "success" && sourceList.length === 0) {
-          throw new Error(data.message || "Failed to fetch anomalies");
-        }
+  //       if (data.status && data.status !== "success" && sourceList.length === 0) {
+  //         throw new Error(data.message || "Failed to fetch anomalies");
+  //       }
 
-        if (mounted) {
-          setAnomalies(sourceList.map(normalizeAnomaly));
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(err?.response?.data?.message || err.message || "Failed to fetch anomalies");
-        }
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
+  //       if (mounted) {
+  //         setAnomalies(sourceList.map(normalizeAnomaly));
+  //       }
+  //     } catch (err) {
+  //       if (mounted) {
+  //         setError(err?.response?.data?.message || err.message || "Failed to fetch anomalies");
+  //       }
+  //     } finally {
+  //       if (mounted) setLoading(false);
+  //     }
+  //   };
     
-    fetchAnomalies();
-    return () => {
-      mounted = false;
-    };
-  }, [ruleId, simId, normalizeAnomaly]);
+  //   fetchAnomalies();
+  //   return () => {
+  //     mounted = false;
+  //   };
+  // }, [ruleId, simId, normalizeAnomaly]);
 
   const getRiskColor = (score) => {
     if (score >= 90) return "bg-red-500";
@@ -1244,12 +1255,61 @@ function SimulationModal() {
     );
   };
 
-  const handleRun = () => {
+  const handleRun = async () => {
     if (dateError) return;
-    dispatch(runSimulation({
-      ruleId: rule.id,
-      config: { ...sim.config, mode: sim.mode, environment: sim.selectedEnv?.id || "QA" },
-    }));
+
+    try {
+      // Build dynamic params from simulation config
+      const dynamicPayload = {};
+
+      if (dynamicParams?.LIST) {
+        dynamicParams.LIST.forEach((param) => {
+          const value = sim.config[param.name];
+
+          if (value !== undefined && value !== null && value !== "") {
+            dynamicPayload[param.name] = value;
+          }
+        });
+      }
+
+      // Call backend simulation API
+      await dispatch(runSimulation({
+        ruleId: rule.id,
+        config: {
+          ...sim.config,
+          mode: sim.mode,
+          environment: sim.selectedEnv?.id || "QA",
+          dynamic_params: dynamicPayload,
+        },
+      })).unwrap();
+
+      // Call anomalies endpoint
+      const params = new URLSearchParams();
+
+      params.append("rule_id", rule.id);
+
+      Object.entries(dynamicPayload).forEach(([key, value]) => {
+        params.append(key, value);
+      });
+
+      const anomalyResponse = await apiClient.get(
+        `/sap/anomalies/detected/?${params.toString()}`
+      );
+
+      const anomalyData = anomalyResponse?.data || {};
+
+      dispatch(closeSimulation());
+
+      dispatch(openModal({
+        type: "ANOMALIES",
+        rule,
+        anomalies: anomalyData.anomalies || [],
+        count: anomalyData.count || 0,
+        ruleId: rule.id,
+      }));
+    } catch (err) {
+      console.error("Simulation failed:", err);
+    }
   };
 
   const backBtn = (step) => (
@@ -1534,11 +1594,11 @@ function SimulationModal() {
   );
 
   // Step 6 — redirect to view
-  if (sim.step === 6) {
-    dispatch(closeSimulation());
-    dispatch(openModal({ type: "VIEW", rule }));
-    return null;
-  }
+  // if (sim.step === 6) {
+  //   dispatch(closeSimulation());
+  //   dispatch(openModal({ type: "VIEW", rule }));
+  //   return null;
+  // }
 
   return null;
 }
