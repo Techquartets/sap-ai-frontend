@@ -1396,15 +1396,6 @@ function SimulationModal() {
         {closeBtn}
       </div>
       <div className="px-6 py-5 space-y-4">
-        <div className="p-3 rounded-xl bg-white/[0.04] border border-white/8 text-xs">
-          <p className="font-semibold text-[var(--muted)] uppercase tracking-wider text-[10px] mb-2">Rule Configuration</p>
-          <div className="grid grid-cols-3 gap-2">
-            <div><span className="text-[var(--muted)]">Module: </span><span className="font-medium text-[var(--text)]">{rule.module}</span></div>
-            <div><span className="text-[var(--muted)]">Amount: </span><span className="font-medium text-[var(--text)]">${(thresholds.amountThreshold || 0).toLocaleString()}</span></div>
-            <div><span className="text-[var(--muted)]">Window: </span><span className="font-medium text-[var(--text)]">{thresholds.timeWindow}d</span></div>
-          </div>
-        </div>
-        
         {/* Dynamic parameters from backend */}
         {loadingParams && (
           <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400">
@@ -1418,36 +1409,6 @@ function SimulationModal() {
           </div>
         )}
         
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Transaction Count</label>
-          <input
-            type="number" min={100} max={100000}
-            value={sim.config.transactionCount}
-            onChange={(e) => dispatch(setSimConfig({ transactionCount: Number(e.target.value) }))}
-            className="w-full px-3 py-2.5 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-          />
-          <p className="text-[10px] text-[var(--muted)] mt-1">Total synthetic transactions (mix of normal and anomalous)</p>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Transaction Date Range</label>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">From Date</p>
-              <input type="date" value={sim.config.fromDate}
-                onChange={(e) => dispatch(setSimConfig({ fromDate: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-              />
-            </div>
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">To Date</p>
-              <input type="date" value={sim.config.toDate}
-                onChange={(e) => dispatch(setSimConfig({ toDate: e.target.value }))}
-                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-              />
-            </div>
-          </div>
-          {dateError && <p className="text-xs text-red-400 mt-1.5 flex items-center gap-1"><Warning size={12} />End date must be after start date.</p>}
-        </div>
         {sim.error && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{sim.error}</p>}
       </div>
       <div className="px-6 pb-5 flex gap-2">
@@ -1538,26 +1499,6 @@ function SimulationModal() {
           </div>
         )}
         
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Simulation Date Range</label>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">From Date</p>
-              <input type="date" value={sim.config.fromDate}
-                onChange={(e) => dispatch(setSimConfig({ fromDate: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-              />
-            </div>
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">To Date</p>
-              <input type="date" value={sim.config.toDate}
-                onChange={(e) => dispatch(setSimConfig({ toDate: e.target.value }))}
-                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-              />
-            </div>
-          </div>
-          {dateError && <p className="text-xs text-red-400 mt-1.5 flex items-center gap-1"><Warning size={12} />End date must be after start date.</p>}
-        </div>
         <p className="text-[10px] text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
           ⚠ Simulation runs against SAP {sim.selectedEnv?.id}. Ensure data privacy compliance before proceeding.
         </p>
@@ -1565,7 +1506,7 @@ function SimulationModal() {
       </div>
       <div className="px-6 pb-5 flex gap-2">
         <button
-          disabled={!sim.config.fromDate || !sim.config.toDate || !!dateError || sim.loading}
+          disabled={sim.loading}
           onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
