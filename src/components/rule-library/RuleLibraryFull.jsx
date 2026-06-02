@@ -1222,6 +1222,10 @@ function SimulationModal() {
 
   const dateError = sim.config.fromDate && sim.config.toDate &&
     new Date(sim.config.toDate) < new Date(sim.config.fromDate);
+  
+  const hasDynamicParams =
+    dynamicParams?.LIST &&
+    dynamicParams.LIST.length > 0;
 
   // Fetch dynamic parameters when modal opens
   React.useEffect(() => {
@@ -1256,7 +1260,13 @@ function SimulationModal() {
 
   // Render dynamic parameter fields
   const renderDynamicFields = () => {
-    if (!dynamicParams?.LIST || dynamicParams.LIST.length === 0) return null;
+    if (!dynamicParams?.LIST || dynamicParams.LIST.length === 0) {
+      return (
+        <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+          ⚠ No CDS View Parameters available for this rule.
+        </p>
+      );
+    }
 
     return (
       <>
@@ -1426,16 +1436,14 @@ function SimulationModal() {
           </div>
         )}
         
-        {dynamicParams && (
-          <div className="space-y-3 p-3 rounded-xl bg-white/[0.04] border border-white/8">
-            {renderDynamicFields()}
-          </div>
-        )}
+        
+        {renderDynamicFields()}
+        
         
         {sim.error && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{sim.error}</p>}
       </div>
       <div className="px-6 pb-5 flex gap-2">
-        <button disabled={!!dateError || sim.loading} onClick={handleRun}
+        <button disabled={!!dateError || sim.loading || !hasDynamicParams} onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
           {sim.loading ? <CircleNotch size={14} className="animate-spin" /> : <Database size={14} />} Generate & Continue
@@ -1516,11 +1524,9 @@ function SimulationModal() {
           </div>
         )}
         
-        {dynamicParams && (
-          <div className="space-y-3 p-3 rounded-xl bg-white/[0.04] border border-white/8">
-            {renderDynamicFields()}
-          </div>
-        )}
+        
+        {renderDynamicFields()}
+        
         
         <p className="text-[10px] text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
           ⚠ Simulation runs against SAP {sim.selectedEnv?.id}. Ensure data privacy compliance before proceeding.
@@ -1529,7 +1535,7 @@ function SimulationModal() {
       </div>
       <div className="px-6 pb-5 flex gap-2">
         <button
-          disabled={sim.loading}
+          disabled={sim.loading || !hasDynamicParams}
           onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
