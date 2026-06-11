@@ -177,7 +177,7 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
 }
 
 // ─── Case Investigation Modal ──────────────────────────────────────────────────
-function CaseModal({ caseId, onClose, onUpdate }) {
+export function CaseModal({ caseId, onClose, onUpdate }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

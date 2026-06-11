@@ -42,6 +42,7 @@ import {
   UploadSimple,
 } from "@phosphor-icons/react";
 import { Server } from "lucide-react";
+import { CaseModal } from "../../pages/caseManagement";
 // ✅ NEW: Import backend services if not passed as props
 import { ruleService } from "../../services/ruleService";
 import apiClient from "../../services/apiClient";
@@ -926,6 +927,7 @@ function DeploySuccessModal() {
 function AnomaliesModal() {
   const dispatch = useAppDispatch();
   const { modalData } = useAppSelector((s) => s.rules);
+  const [investigationCaseId, setInvestigationCaseId] = React.useState(null);
 //   const [anomalies] = React.useState(
 //   Array.isArray(modalData?.anomalies)
 //     ? modalData.anomalies.map(normalizeAnomaly)
@@ -1056,11 +1058,17 @@ function AnomaliesModal() {
     return d.toLocaleString();
   };
 
+  const openCaseInvestigation = (caseId) => {
+    if (!caseId || caseId === "N/A") return;
+    setInvestigationCaseId(caseId);
+  };
+
   const rows = anomalies;
   const visibleRows = rows.slice(0, 10);
 
   return (
-    <Modal onClose={() => dispatch(closeModal())} width="max-w-6xl">
+    <>
+    <Modal onClose={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} width="max-w-6xl">
       <div className="px-8 pt-6 pb-4 border-b border-white/10 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">
@@ -1071,7 +1079,7 @@ function AnomaliesModal() {
           </div>
           <p className="text-xs text-[var(--muted)] mt-2">{rows.length || Number(count) || 0} cases detected in simulation</p>
         </div>
-        <button onClick={() => dispatch(closeModal())} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
+        <button onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
           <X size={18} />
         </button>
       </div>
@@ -1119,7 +1127,14 @@ function AnomaliesModal() {
                   <CaretRight size={14} />
                 </td>
                 <td className="px-3 py-3.5">
-                  <span className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer">{anom.caseId}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openCaseInvestigation(anom.caseId); }}
+                    disabled={!anom.caseId || anom.caseId === "N/A"}
+                    className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer disabled:text-[var(--muted)] disabled:no-underline disabled:cursor-default"
+                  >
+                    {anom.caseId}
+                  </button>
                 </td>
                 <td className="px-3 py-3.5">
                   <span className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer">{anom.transactionId}</span>
@@ -1160,13 +1175,21 @@ function AnomaliesModal() {
       <div className="px-8 py-3 border-t border-white/10 flex items-center justify-between">
         <p className="text-xs text-[var(--muted)]">Showing {rows.length} detected fraud cases</p>
         <button
-          onClick={() => dispatch(closeModal())}
+          onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }}
           className="px-6 py-2.5 rounded-lg bg-slate-700/40 hover:bg-slate-700/60 text-[var(--text)] text-sm font-semibold transition-colors"
         >
           Close
         </button>
       </div>
     </Modal>
+    {investigationCaseId && (
+      <CaseModal
+        caseId={investigationCaseId}
+        onClose={() => setInvestigationCaseId(null)}
+        onUpdate={() => {}}
+      />
+    )}
+    </>
   );
 }
 
@@ -1199,6 +1222,10 @@ function SimulationModal() {
 
   const dateError = sim.config.fromDate && sim.config.toDate &&
     new Date(sim.config.toDate) < new Date(sim.config.fromDate);
+  
+  const hasDynamicParams =
+    dynamicParams?.LIST &&
+    dynamicParams.LIST.length > 0;
 
   // Fetch dynamic parameters when modal opens
   React.useEffect(() => {
@@ -1233,7 +1260,13 @@ function SimulationModal() {
 
   // Render dynamic parameter fields
   const renderDynamicFields = () => {
-    if (!dynamicParams?.LIST || dynamicParams.LIST.length === 0) return null;
+    if (!dynamicParams?.LIST || dynamicParams.LIST.length === 0) {
+      return (
+        <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+          ⚠ No CDS View Parameters available for this rule.
+        </p>
+      );
+    }
 
     return (
       <>
@@ -1396,15 +1429,6 @@ function SimulationModal() {
         {closeBtn}
       </div>
       <div className="px-6 py-5 space-y-4">
-        <div className="p-3 rounded-xl bg-white/[0.04] border border-white/8 text-xs">
-          <p className="font-semibold text-[var(--muted)] uppercase tracking-wider text-[10px] mb-2">Rule Configuration</p>
-          <div className="grid grid-cols-3 gap-2">
-            <div><span className="text-[var(--muted)]">Module: </span><span className="font-medium text-[var(--text)]">{rule.module}</span></div>
-            <div><span className="text-[var(--muted)]">Amount: </span><span className="font-medium text-[var(--text)]">${(thresholds.amountThreshold || 0).toLocaleString()}</span></div>
-            <div><span className="text-[var(--muted)]">Window: </span><span className="font-medium text-[var(--text)]">{thresholds.timeWindow}d</span></div>
-          </div>
-        </div>
-        
         {/* Dynamic parameters from backend */}
         {loadingParams && (
           <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400">
@@ -1412,46 +1436,14 @@ function SimulationModal() {
           </div>
         )}
         
-        {dynamicParams && (
-          <div className="space-y-3 p-3 rounded-xl bg-white/[0.04] border border-white/8">
-            {renderDynamicFields()}
-          </div>
-        )}
         
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Transaction Count</label>
-          <input
-            type="number" min={100} max={100000}
-            value={sim.config.transactionCount}
-            onChange={(e) => dispatch(setSimConfig({ transactionCount: Number(e.target.value) }))}
-            className="w-full px-3 py-2.5 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-          />
-          <p className="text-[10px] text-[var(--muted)] mt-1">Total synthetic transactions (mix of normal and anomalous)</p>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Transaction Date Range</label>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">From Date</p>
-              <input type="date" value={sim.config.fromDate}
-                onChange={(e) => dispatch(setSimConfig({ fromDate: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-              />
-            </div>
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">To Date</p>
-              <input type="date" value={sim.config.toDate}
-                onChange={(e) => dispatch(setSimConfig({ toDate: e.target.value }))}
-                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-              />
-            </div>
-          </div>
-          {dateError && <p className="text-xs text-red-400 mt-1.5 flex items-center gap-1"><Warning size={12} />End date must be after start date.</p>}
-        </div>
+        {renderDynamicFields()}
+        
+        
         {sim.error && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{sim.error}</p>}
       </div>
       <div className="px-6 pb-5 flex gap-2">
-        <button disabled={!!dateError || sim.loading} onClick={handleRun}
+        <button disabled={!!dateError || sim.loading } onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
           {sim.loading ? <CircleNotch size={14} className="animate-spin" /> : <Database size={14} />} Generate & Continue
@@ -1532,32 +1524,10 @@ function SimulationModal() {
           </div>
         )}
         
-        {dynamicParams && (
-          <div className="space-y-3 p-3 rounded-xl bg-white/[0.04] border border-white/8">
-            {renderDynamicFields()}
-          </div>
-        )}
         
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Simulation Date Range</label>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">From Date</p>
-              <input type="date" value={sim.config.fromDate}
-                onChange={(e) => dispatch(setSimConfig({ fromDate: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-              />
-            </div>
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">To Date</p>
-              <input type="date" value={sim.config.toDate}
-                onChange={(e) => dispatch(setSimConfig({ toDate: e.target.value }))}
-                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-              />
-            </div>
-          </div>
-          {dateError && <p className="text-xs text-red-400 mt-1.5 flex items-center gap-1"><Warning size={12} />End date must be after start date.</p>}
-        </div>
+        {renderDynamicFields()}
+        
+        
         <p className="text-[10px] text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
           ⚠ Simulation runs against SAP {sim.selectedEnv?.id}. Ensure data privacy compliance before proceeding.
         </p>
@@ -1565,7 +1535,7 @@ function SimulationModal() {
       </div>
       <div className="px-6 pb-5 flex gap-2">
         <button
-          disabled={!sim.config.fromDate || !sim.config.toDate || !!dateError || sim.loading}
+          disabled={sim.loading }
           onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
