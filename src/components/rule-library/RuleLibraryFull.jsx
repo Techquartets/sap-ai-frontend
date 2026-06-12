@@ -46,6 +46,7 @@ import { CaseModal } from "../../pages/caseManagement";
 // ✅ NEW: Import backend services if not passed as props
 import { ruleService } from "../../services/ruleService";
 import apiClient from "../../services/apiClient";
+import { generateTestDataAPI } from "../../features/rules/rulesBackendAPI";
 
 // ─── Visual Config (all hardcoded — no dynamic Tailwind interpolation) ────────
 
@@ -1201,7 +1202,10 @@ function SimulationModal() {
   const simEnvs  = useAppSelector((s) => s.rules.simEnvs);
   const [dynamicParams, setDynamicParams] = React.useState(null);
   const [loadingParams, setLoadingParams] = React.useState(false);
-  
+  const [generatedMd, setGeneratedMd] = React.useState("");
+  const [generating, setGenerating] = React.useState(false);
+  const [genError, setGenError] = React.useState("");
+
   if (sim.step === 0 || !rule) return null;
   const thresholds = rule.thresholds || {
     amountThreshold: 0,
@@ -1291,20 +1295,69 @@ function SimulationModal() {
   const handleRun = async () => {
     if (dateError) return;
 
-    try {
-      // Build dynamic params from simulation config
-      const dynamicPayload = {};
+    // Build dynamic params from simulation config (used by both branches)
+    const dynamicPayload = {};
 
-      if (dynamicParams?.LIST) {
-        dynamicParams.LIST.forEach((param) => {
-          const value = sim.config[param.name];
+    if (dynamicParams?.LIST) {
+      dynamicParams.LIST.forEach((param) => {
+        const value = sim.config[param.name];
 
-          if (value !== undefined && value !== null && value !== "") {
-            dynamicPayload[param.name] = value;
-          }
-        });
+        if (value !== undefined && value !== null && value !== "") {
+          dynamicPayload[param.name] = value;
+        }
+      });
+    }
+
+    // ── TEST DATA branch ── invoke generate_test_data_agent in backend ──
+    if (sim.mode === "test") {
+      setGenError("");
+
+      if (!rule.cdsCode || !rule.cdsCode.trim()) {
+        setGenError("This rule has no CDS code attached. Cannot generate test data.");
+        return;
       }
 
+      // Build rule_context: description + entered CDS view parameter values
+      const ctxLines = [];
+      if (rule.name) ctxLines.push(`Rule: ${rule.name}`);
+      if (rule.description) ctxLines.push(`Description: ${rule.description}`);
+
+      if (dynamicParams?.LIST && dynamicParams.LIST.length > 0) {
+        const paramLines = dynamicParams.LIST
+          .map((p) => {
+            const v = dynamicPayload[p.name];
+            return v !== undefined ? `- ${p.label} (${p.name}) = ${v}` : null;
+          })
+          .filter(Boolean);
+
+        if (paramLines.length > 0) {
+          ctxLines.push("CDS view parameters:");
+          ctxLines.push(...paramLines);
+        }
+      }
+
+      const ruleContext = ctxLines.join("\n");
+
+      try {
+        setGenerating(true);
+        const result = await generateTestDataAPI(rule.cdsCode, ruleContext);
+        setGeneratedMd(result.output || "");
+        dispatch(setSimStep(7));
+      } catch (err) {
+        console.error("Generate test data failed:", err);
+        const msg =
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to generate test data";
+        setGenError(msg);
+      } finally {
+        setGenerating(false);
+      }
+      return;
+    }
+
+    // ── LIVE DATA branch (unchanged) ──
+    try {
       // Call backend simulation API
       await dispatch(runSimulation({
         ruleId: rule.id,
@@ -1441,12 +1494,13 @@ function SimulationModal() {
         
         
         {sim.error && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{sim.error}</p>}
+        {genError && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{genError}</p>}
       </div>
       <div className="px-6 pb-5 flex gap-2">
-        <button disabled={!!dateError || sim.loading } onClick={handleRun}
+        <button disabled={!!dateError || generating} onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          {sim.loading ? <CircleNotch size={14} className="animate-spin" /> : <Database size={14} />} Generate & Continue
+          {generating ? <CircleNotch size={14} className="animate-spin" /> : <Database size={14} />} Generate & Continue
         </button>
         {cancelBtn}
       </div>
@@ -1569,6 +1623,42 @@ function SimulationModal() {
   //   dispatch(openModal({ type: "VIEW", rule }));
   //   return null;
   // }
+
+  // Step 7 — Generated test data result (Markdown from generate_test_data_agent)
+  if (sim.step === 7) return (
+    <Modal onClose={() => dispatch(closeSimulation())} width="max-w-3xl">
+      <div className="px-6 pt-5 pb-4 flex items-center justify-between border-b border-white/8">
+        <div>
+          <h2 className="text-[15px] font-semibold text-[var(--text)]">Generated Test Data</h2>
+          <p className="text-xs text-[var(--muted)] mt-0.5">{rule.name}</p>
+        </div>
+        {closeBtn}
+      </div>
+      <div className="px-6 py-5">
+        {generatedMd ? (
+          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--text)] bg-[var(--card)] border border-white/10 rounded-xl p-4 font-mono">
+            {generatedMd}
+          </pre>
+        ) : (
+          <p className="text-xs text-[var(--muted)]">No output returned by the agent.</p>
+        )}
+      </div>
+      <div className="px-6 pb-5 flex gap-2">
+        <button
+          onClick={() => { setGeneratedMd(""); setGenError(""); dispatch(setSimStep(2)); }}
+          className="px-4 py-2.5 rounded-xl border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 hover:text-[var(--text)] transition-colors"
+        >
+          Regenerate
+        </button>
+        <button
+          onClick={() => dispatch(closeSimulation())}
+          className="flex-1 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold transition-all"
+        >
+          Done
+        </button>
+      </div>
+    </Modal>
+  );
 
   return null;
 }
