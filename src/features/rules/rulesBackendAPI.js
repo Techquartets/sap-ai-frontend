@@ -170,6 +170,25 @@ export const runSimulationAPI = async (ruleId, config) => {
 };
 
 // ─────────────────────────────────────────────────────────────
+// GENERATE TEST DATA (invokes generate_test_data_agent in backend)
+// ─────────────────────────────────────────────────────────────
+
+export const generateTestDataAPI = async (cdsSource, ruleContext = "") => {
+  const response = await apiClient.post(
+    "/sap/generate-test-data/",
+    { cdsSource, ruleContext },
+    // LLM (Claude Opus) on a large CDS DDL routinely takes 30-90s;
+    // override the apiClient default (30s) for this endpoint only.
+    { timeout: 180000 }
+  );
+
+  return {
+    success: true,
+    output: response.data?.data?.output || "",
+  };
+};
+
+// ─────────────────────────────────────────────────────────────
 // DEPLOY TO ENV
 // ─────────────────────────────────────────────────────────────
 
