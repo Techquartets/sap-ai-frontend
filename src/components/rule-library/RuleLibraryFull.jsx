@@ -1188,7 +1188,47 @@ function MarkdownBlocks({ lines }) {
 
 function GeneratedTestDataPanel({ markdown, ruleName, onClose, onRegenerate }) {
   const [copied, setCopied] = React.useState(false);
+  const [showMore, setShowMore] = React.useState(false);
   const sections = React.useMemo(() => splitMarkdownSections(markdown), [markdown]);
+
+  const primaryIdx = React.useMemo(
+    () => sections.findIndex((s) => {
+      const t = (s.title || "").toLowerCase();
+      return t.includes("result") && t.includes("row");
+    }),
+    [sections]
+  );
+
+  const otherSections = React.useMemo(
+    () => (primaryIdx >= 0 ? sections.filter((_, i) => i !== primaryIdx) : []),
+    [sections, primaryIdx]
+  );
+
+  const renderSection = (section, key) => {
+    const meta = getSectionMeta(section.title);
+    const { Icon, accent, badge } = meta;
+    return (
+      <section
+        key={key}
+        className={`rounded-xl border p-4 ${SECTION_ACCENT[accent] || SECTION_ACCENT.blue}`}
+      >
+        <div className="flex items-center gap-3 mb-3">
+          <div className={`p-2 rounded-lg ${SECTION_ICON[accent] || SECTION_ICON.blue}`}>
+            <Icon size={16} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-sm font-semibold text-[var(--text)]">{section.title}</h3>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/5 text-[var(--muted)] border border-white/10 uppercase tracking-wider">
+                {badge}
+              </span>
+            </div>
+          </div>
+        </div>
+        <MarkdownBlocks lines={section.lines} />
+      </section>
+    );
+  };
 
   const stats = React.useMemo(() => {
     let sourceTables = 0;
@@ -1287,32 +1327,24 @@ function GeneratedTestDataPanel({ markdown, ruleName, onClose, onRegenerate }) {
               The test data agent did not return any content. Try regenerating with different CDS parameters.
             </p>
           </div>
+        ) : primaryIdx === -1 ? (
+          sections.map((section) => renderSection(section, section.title))
         ) : (
-          sections.map((section) => {
-            const meta = getSectionMeta(section.title);
-            const { Icon, accent, badge } = meta;
-            return (
-              <section
-                key={section.title}
-                className={`rounded-xl border p-4 ${SECTION_ACCENT[accent] || SECTION_ACCENT.blue}`}
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className={`p-2 rounded-lg ${SECTION_ICON[accent] || SECTION_ICON.blue}`}>
-                    <Icon size={16} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-sm font-semibold text-[var(--text)]">{section.title}</h3>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/5 text-[var(--muted)] border border-white/10 uppercase tracking-wider">
-                        {badge}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <MarkdownBlocks lines={section.lines} />
-              </section>
-            );
-          })
+          <>
+            {renderSection(sections[primaryIdx], sections[primaryIdx].title)}
+            {otherSections.length > 0 && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowMore((v) => !v)}
+                  className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 cursor-pointer bg-transparent border-0 p-0"
+                >
+                  {showMore ? "less details" : "more details"}
+                </button>
+              </div>
+            )}
+            {showMore && otherSections.map((section) => renderSection(section, section.title))}
+          </>
         )}
       </div>
 
