@@ -182,6 +182,12 @@ export const generateTestDataAPI = async (cdsSource, ruleContext = "") => {
     { timeout: 180000 }
   );
 
+  if (response.data?.status === "error") {
+    const err = new Error(response.data?.message || "Failed to generate test data");
+    err.response = { data: response.data };
+    throw err;
+  }
+
   return {
     success: true,
     output: response.data?.data?.output || "",

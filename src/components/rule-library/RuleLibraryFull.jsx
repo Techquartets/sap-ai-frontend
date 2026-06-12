@@ -40,9 +40,11 @@ import {
   CircleNotch, Database, Cpu, ShieldCheck, CloudArrowUp,
   Clock, ArrowsClockwise, CalendarCheck, Siren,
   UploadSimple,
+  Copy,
+  Table,
+  GitBranch,
 } from "@phosphor-icons/react";
 import { Server } from "lucide-react";
-import { CaseModal } from "../../pages/caseManagement";
 // ✅ NEW: Import backend services if not passed as props
 import { ruleService } from "../../services/ruleService";
 import apiClient from "../../services/apiClient";
@@ -924,99 +926,471 @@ function DeploySuccessModal() {
   );
 }
 
+// ─── Agent test-data markdown renderer ────────────────────────────────────────
+
+function renderInlineMarkdown(text) {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i} className="font-semibold text-[var(--text)]">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code key={i} className="px-1 py-0.5 rounded bg-white/10 text-blue-300 text-[11px] font-mono">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
+function parseTableCells(line) {
+  return line
+    .split("|")
+    .map((c) => c.trim())
+    .filter((c, idx, arr) => !(idx === 0 && c === "") && !(idx === arr.length - 1 && c === ""));
+}
+
+function isTableSeparator(line) {
+  return /^\|?[\s|:-]+\|?$/.test(line.trim()) && line.includes("-");
+}
+
+function parseMarkdownBlocks(lines) {
+  const blocks = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.trim().startsWith("```")) {
+      const lang = line.trim().slice(3).trim();
+      const codeLines = [];
+      i += 1;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+      blocks.push({ type: "code", lang, content: codeLines.join("\n") });
+      i += 1;
+      continue;
+    }
+
+    if (line.trim().startsWith("|")) {
+      const tableLines = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        tableLines.push(lines[i]);
+        i += 1;
+      }
+      const headers = parseTableCells(tableLines[0]);
+      const rows = tableLines
+        .slice(1)
+        .filter((l) => !isTableSeparator(l))
+        .map(parseTableCells)
+        .filter((row) => row.length > 0);
+      blocks.push({ type: "table", headers, rows });
+      continue;
+    }
+
+    const headingMatch = line.trim().match(/^(#{1,3})\s+(.+)$/);
+    if (headingMatch) {
+      blocks.push({ type: "heading", level: headingMatch[1].length, text: headingMatch[2].trim() });
+      i += 1;
+      continue;
+    }
+
+    if (/^[-*•]\s+/.test(line.trim())) {
+      const items = [];
+      while (i < lines.length && /^[-*•]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].replace(/^[-*•]\s+/, "").trim());
+        i += 1;
+      }
+      blocks.push({ type: "ul", items });
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(line.trim())) {
+      const items = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+        items.push(lines[i].replace(/^\d+\.\s+/, "").trim());
+        i += 1;
+      }
+      blocks.push({ type: "ol", items });
+      continue;
+    }
+
+    if (line.trim() === "") {
+      i += 1;
+      continue;
+    }
+
+    const paraLines = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !lines[i].trim().startsWith("|") &&
+      !lines[i].trim().startsWith("```") &&
+      !/^(#{1,3})\s+/.test(lines[i].trim()) &&
+      !/^[-*•]\s+/.test(lines[i].trim()) &&
+      !/^\d+\.\s+/.test(lines[i].trim())
+    ) {
+      paraLines.push(lines[i].trim());
+      i += 1;
+    }
+    if (paraLines.length) blocks.push({ type: "p", text: paraLines.join(" ") });
+  }
+
+  return blocks;
+}
+
+function splitMarkdownSections(markdown) {
+  const lines = (markdown || "").split("\n");
+  const sections = [];
+  let current = { title: "Overview", lines: [] };
+
+  for (const line of lines) {
+    const match = line.match(/^##\s+(.+)$/);
+    if (match) {
+      if (current.lines.length > 0 || sections.length > 0) sections.push(current);
+      current = { title: match[1].trim(), lines: [] };
+    } else {
+      current.lines.push(line);
+    }
+  }
+
+  if (current.lines.length > 0 || sections.length === 0) sections.push(current);
+  return sections;
+}
+
+function getSectionMeta(title) {
+  const key = (title || "").toLowerCase();
+  if (key.includes("assumption")) return { Icon: Warning, accent: "amber", badge: "Context" };
+  if (key.includes("source") || key.includes("table")) return { Icon: Database, accent: "blue", badge: "Source Data" };
+  if (key.includes("cds") || key.includes("result")) return { Icon: Siren, accent: "red", badge: "View Output" };
+  if (key.includes("counter")) return { Icon: Eye, accent: "slate", badge: "Excluded" };
+  if (key.includes("walk")) return { Icon: ArrowsClockwise, accent: "teal", badge: "Trace" };
+  if (key.includes("diagram") || key.includes("mermaid")) return { Icon: GitBranch, accent: "violet", badge: "Flow" };
+  return { Icon: Table, accent: "blue", badge: "Section" };
+}
+
+const SECTION_ACCENT = {
+  amber: "border-amber-500/25 bg-amber-500/5",
+  blue: "border-blue-500/25 bg-blue-500/5",
+  red: "border-red-500/25 bg-red-500/5",
+  slate: "border-white/10 bg-white/[0.02]",
+  teal: "border-teal-500/25 bg-teal-500/5",
+  violet: "border-violet-500/25 bg-violet-500/5",
+};
+
+const SECTION_ICON = {
+  amber: "text-amber-400 bg-amber-500/15",
+  blue: "text-blue-400 bg-blue-500/15",
+  red: "text-red-400 bg-red-500/15",
+  slate: "text-[var(--muted)] bg-white/5",
+  teal: "text-teal-400 bg-teal-500/15",
+  violet: "text-violet-400 bg-violet-500/15",
+};
+
+function MarkdownTable({ headers, rows }) {
+  if (!headers?.length) return null;
+  return (
+    <div className="overflow-x-auto rounded-xl border border-white/10 bg-[var(--card)]">
+      <table className="w-full text-sm min-w-[480px]">
+        <thead className="bg-[var(--bg)]">
+          <tr className="border-b border-white/10">
+            {headers.map((h) => (
+              <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest whitespace-nowrap">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/8">
+          {rows.map((row, ri) => (
+            <tr key={ri} className="hover:bg-white/[0.025] transition-colors">
+              {headers.map((_, ci) => (
+                <td key={ci} className="px-3 py-2.5 text-[12px] text-[var(--text)] font-mono whitespace-nowrap">
+                  {renderInlineMarkdown(row[ci] || "—")}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MarkdownBlocks({ lines }) {
+  const blocks = parseMarkdownBlocks(lines);
+  return (
+    <div className="space-y-3">
+      {blocks.map((block, idx) => {
+        if (block.type === "table") {
+          return <MarkdownTable key={idx} headers={block.headers} rows={block.rows} />;
+        }
+        if (block.type === "code") {
+          const isMermaid = (block.lang || "").toLowerCase().includes("mermaid");
+          return (
+            <div key={idx} className="rounded-xl border border-white/10 overflow-hidden">
+              <div className="px-3 py-2 border-b border-white/10 bg-white/[0.03] flex items-center gap-2">
+                <GitBranch size={13} className="text-violet-400" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+                  {isMermaid ? "Mermaid Diagram" : block.lang || "Code"}
+                </span>
+              </div>
+              <pre className="text-[11px] leading-relaxed text-emerald-300/90 font-mono p-4 overflow-x-auto bg-[#060b12] whitespace-pre">
+                {block.content}
+              </pre>
+            </div>
+          );
+        }
+        if (block.type === "heading") {
+          const Tag = block.level <= 2 ? "h4" : "h5";
+          return (
+            <Tag key={idx} className={`font-semibold text-[var(--text)] ${block.level <= 2 ? "text-sm mt-1" : "text-xs text-[var(--muted)]"}`}>
+              {renderInlineMarkdown(block.text)}
+            </Tag>
+          );
+        }
+        if (block.type === "ul") {
+          return (
+            <ul key={idx} className="space-y-1.5 pl-1">
+              {block.items.map((item, ii) => (
+                <li key={ii} className="flex items-start gap-2 text-[12px] text-[var(--text)] leading-relaxed">
+                  <span className="text-blue-400 mt-1 flex-shrink-0 text-[8px]">●</span>
+                  <span>{renderInlineMarkdown(item)}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === "ol") {
+          return (
+            <ol key={idx} className="space-y-1.5 pl-4 list-decimal marker:text-blue-400">
+              {block.items.map((item, ii) => (
+                <li key={ii} className="text-[12px] text-[var(--text)] leading-relaxed pl-1">
+                  {renderInlineMarkdown(item)}
+                </li>
+              ))}
+            </ol>
+          );
+        }
+        return (
+          <p key={idx} className="text-[12px] text-[var(--text)] leading-relaxed">
+            {renderInlineMarkdown(block.text)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function GeneratedTestDataPanel({ markdown, ruleName, onClose, onRegenerate }) {
+  const [copied, setCopied] = React.useState(false);
+  const sections = React.useMemo(() => splitMarkdownSections(markdown), [markdown]);
+
+  const stats = React.useMemo(() => {
+    let sourceTables = 0;
+    let resultRows = 0;
+    let assumptions = 0;
+
+    sections.forEach((section) => {
+      const blocks = parseMarkdownBlocks(section.lines);
+      const title = section.title.toLowerCase();
+      if (title.includes("assumption")) {
+        assumptions += blocks.filter((b) => b.type === "ul" || b.type === "p").length;
+      }
+      if (title.includes("source") || title.includes("table")) {
+        sourceTables += blocks.filter((b) => b.type === "table").length;
+      }
+      if (title.includes("cds") || title.includes("result")) {
+        blocks.filter((b) => b.type === "table").forEach((t) => {
+          resultRows += t.rows?.length || 0;
+        });
+      }
+    });
+
+    return { sourceTables, resultRows, assumptions, sections: sections.length };
+  }, [sections]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="px-8 pt-6 pb-4 border-b border-white/10 flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-lg font-semibold text-[var(--text)]">Generated Test Data</h2>
+            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/30">
+              Synthetic Preview
+            </span>
+            {stats.resultRows > 0 && (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-red-500/20 text-red-400 border border-red-500/30">
+                {stats.resultRows} CDS hit{stats.resultRows === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-[var(--muted)] mt-1">{ruleName}</p>
+          <p className="text-[11px] text-[var(--muted)] mt-2">
+            Agent-generated illustrative SAP data · {stats.sections} section{stats.sections === 1 ? "" : "s"}
+            {stats.sourceTables > 0 ? ` · ${stats.sourceTables} source table${stats.sourceTables === 1 ? "" : "s"}` : ""}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 text-[11px] text-[var(--muted)] hover:bg-white/5 hover:text-[var(--text)] transition-colors"
+          >
+            <Copy size={14} />
+            {copied ? "Copied" : "Copy Markdown"}
+          </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      {stats.resultRows > 0 && (
+        <div className="px-8 py-3 grid grid-cols-2 sm:grid-cols-4 gap-3 border-b border-white/8 bg-white/[0.02]">
+          {[
+            { label: "CDS Hits", value: stats.resultRows, accent: "text-red-400" },
+            { label: "Source Tables", value: stats.sourceTables, accent: "text-blue-400" },
+            { label: "Sections", value: stats.sections, accent: "text-teal-400" },
+            { label: "Mode", value: "Synthetic", accent: "text-violet-400" },
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-xl border border-white/8 bg-[var(--card)] px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">{stat.label}</p>
+              <p className={`text-lg font-semibold mt-0.5 ${stat.accent}`}>{stat.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="px-8 py-5 max-h-[58vh] overflow-y-auto space-y-4">
+        {!markdown?.trim() ? (
+          <div className="text-center py-14 space-y-3">
+            <div className="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto">
+              <Warning size={28} weight="fill" className="text-amber-400" />
+            </div>
+            <p className="text-[var(--text)] text-sm font-semibold">No output returned</p>
+            <p className="text-[var(--muted)] text-xs max-w-md mx-auto">
+              The test data agent did not return any content. Try regenerating with different CDS parameters.
+            </p>
+          </div>
+        ) : (
+          sections.map((section) => {
+            const meta = getSectionMeta(section.title);
+            const { Icon, accent, badge } = meta;
+            return (
+              <section
+                key={section.title}
+                className={`rounded-xl border p-4 ${SECTION_ACCENT[accent] || SECTION_ACCENT.blue}`}
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`p-2 rounded-lg ${SECTION_ICON[accent] || SECTION_ICON.blue}`}>
+                    <Icon size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-semibold text-[var(--text)]">{section.title}</h3>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/5 text-[var(--muted)] border border-white/10 uppercase tracking-wider">
+                        {badge}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <MarkdownBlocks lines={section.lines} />
+              </section>
+            );
+          })
+        )}
+      </div>
+
+      <div className="px-8 py-3 border-t border-white/10 flex items-center justify-between gap-3">
+        <p className="text-xs text-[var(--muted)]">
+          Illustrative data only — not loaded into SAP. Use for rule validation walkthroughs.
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRegenerate}
+            className="px-4 py-2.5 rounded-lg border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 hover:text-[var(--text)] transition-colors"
+          >
+            Regenerate
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 py-2.5 rounded-lg bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold transition-all"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Anomalies Modal ──────────────────────────────────────────────────────────
 function AnomaliesModal() {
   const dispatch = useAppDispatch();
   const { modalData } = useAppSelector((s) => s.rules);
-  const [investigationCaseId, setInvestigationCaseId] = React.useState(null);
-//   const [anomalies] = React.useState(
-//   Array.isArray(modalData?.anomalies)
-//     ? modalData.anomalies.map(normalizeAnomaly)
-//     : []
-// );
-  // const [loading, setLoading] = React.useState(true);
-  const loading = false;
-  const error = null;
-  // const [error, setError] = React.useState(null);
 
   if (!modalData) return null;
 
-  const { ruleId, simId, count } = modalData;
+  const {
+    ruleId,
+    ruleName,
+    rule,
+    simId,
+    count,
+    anomalies: initialAnomalies = [],
+    summary = {},
+  } = modalData;
+
+  const displayRuleName = rule?.name || ruleName || "Rule Simulation";
 
   const normalizeAnomaly = React.useCallback((raw, index) => {
     const amountRaw = raw.amount?.value ?? raw.amount_value ?? raw.amount ?? raw.total_amount ?? 0;
     const amountValue = Number(amountRaw) || 0;
     const currency = raw.amount?.currency || raw.currency || raw.currency_code || "USD";
     const riskScore = Number(raw.riskScore ?? raw.risk_score ?? raw.score ?? 0);
+    const riskLevel = raw.riskLevel || raw.risk_level || (
+      riskScore >= 90 ? "CRITICAL" :
+      riskScore >= 75 ? "HIGH" :
+      riskScore >= 50 ? "MEDIUM" : "LOW"
+    );
 
     return {
       id: raw.id || raw.caseId || raw.case_id || `${raw.transactionId || raw.transaction_id || "ANOM"}-${index}`,
       caseId: raw.caseId || raw.case_id || raw.case || "N/A",
       transactionId: raw.transactionId || raw.transaction_id || raw.txn_id || "N/A",
-      document: raw.document || raw.document_no || raw.documentNumber || "N/A",
+      document: raw.document || raw.document_no || raw.documentNumber || raw.document_id || "N/A",
+      duplicateDocument: raw.duplicateDocument || raw.duplicate_document || raw.duplicateInvoiceDoc || "—",
       vendor: raw.vendor || raw.vendor_name || "Unknown Vendor",
       vendorCode: raw.vendorCode || raw.vendor_code || raw.vendor_id || "—",
-      amount: {
-        currency,
-        value: amountValue,
-      },
+      amount: { currency, value: amountValue },
       riskScore,
+      riskLevel,
       sapModule: raw.sapModule || raw.sap_module || raw.module || "FI",
       detectedAt: raw.detectedAt || raw.detected_at || raw.created_at || raw.timestamp || new Date().toISOString(),
     };
   }, []);
-  const anomalies = React.useMemo(() => {
-  return Array.isArray(modalData?.anomalies)
-    ? modalData.anomalies.map(normalizeAnomaly)
-    : [];
-}, [modalData?.anomalies, normalizeAnomaly]);
 
-  // Fetch anomalies from backend when modal opens
-  // React.useEffect(() => {
-  //   let mounted = true;
-
-  //   const fetchAnomalies = async () => {
-  //     try {
-  //       setLoading(true);
-  //       setError(null);
-        
-  //       const params = new URLSearchParams();
-  //       if (ruleId && String(ruleId).trim()) params.append("rule_id", String(ruleId).trim());
-  //       if (simId && String(simId).trim()) params.append("sim_id", String(simId).trim());
-  //       params.append("limit", "100");
-        
-  //       const url = `/sap/anomalies/detected/?${params.toString()}`;
-  //       const response = await apiClient.get(url);
-  //       const data = response?.data || {};
-  //       const sourceList = Array.isArray(data.anomalies)
-  //         ? data.anomalies
-  //         : Array.isArray(data.data)
-  //           ? data.data
-  //           : Array.isArray(data.results)
-  //             ? data.results
-  //             : [];
-        
-  //       if (data.status && data.status !== "success" && sourceList.length === 0) {
-  //         throw new Error(data.message || "Failed to fetch anomalies");
-  //       }
-
-  //       if (mounted) {
-  //         setAnomalies(sourceList.map(normalizeAnomaly));
-  //       }
-  //     } catch (err) {
-  //       if (mounted) {
-  //         setError(err?.response?.data?.message || err.message || "Failed to fetch anomalies");
-  //       }
-  //     } finally {
-  //       if (mounted) setLoading(false);
-  //     }
-  //   };
-    
-  //   fetchAnomalies();
-  //   return () => {
-  //     mounted = false;
-  //   };
-  // }, [ruleId, simId, normalizeAnomaly]);
+  const anomalies = React.useMemo(
+    () => (Array.isArray(initialAnomalies) ? initialAnomalies.map(normalizeAnomaly) : []),
+    [initialAnomalies, normalizeAnomaly]
+  );
 
   const getRiskColor = (score) => {
     if (score >= 90) return "bg-red-500";
@@ -1025,18 +1399,21 @@ function AnomaliesModal() {
     return "bg-green-500";
   };
 
-  const getRiskBgColor = (score) => {
-    if (score >= 90) return "bg-red-500/10";
-    if (score >= 75) return "bg-orange-500/10";
-    if (score >= 50) return "bg-yellow-500/10";
-    return "bg-green-500/10";
-  };
-
   const getRiskTextColor = (score) => {
     if (score >= 90) return "text-red-400";
     if (score >= 75) return "text-orange-400";
     if (score >= 50) return "text-yellow-400";
     return "text-green-400";
+  };
+
+  const getRiskLevelStyle = (level) => {
+    const styles = {
+      CRITICAL: "bg-red-500/15 text-red-300 border-red-500/30",
+      HIGH: "bg-orange-500/15 text-orange-300 border-orange-500/30",
+      MEDIUM: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
+      LOW: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    };
+    return styles[level] || styles.LOW;
   };
 
   const getModuleBadgeStyle = (module) => {
@@ -1059,138 +1436,137 @@ function AnomaliesModal() {
     return d.toLocaleString();
   };
 
-  const openCaseInvestigation = (caseId) => {
-    if (!caseId || caseId === "N/A") return;
-    setInvestigationCaseId(caseId);
-  };
-
   const rows = anomalies;
-  const visibleRows = rows.slice(0, 10);
+  const totalScanned = summary.totalRecords ?? count ?? rows.length;
+  const skipped = summary.skipped ?? 0;
 
   return (
-    <>
-    <Modal onClose={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} width="max-w-6xl">
+    <Modal onClose={() => dispatch(closeModal())} width="max-w-6xl">
       <div className="px-8 pt-6 pb-4 border-b border-white/10 flex items-start justify-between">
         <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-[var(--text)]">Detected Fraud Cases</h2>
-            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-red-500/20 text-red-400 border border-red-500/30">
-              Vendor Manipulation
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-lg font-semibold text-[var(--text)]">Simulation Results</h2>
+            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/30">
+              Live Preview
             </span>
+            {rows.length > 0 && (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-red-500/20 text-red-400 border border-red-500/30">
+                {rows.length} Anomal{rows.length === 1 ? "y" : "ies"}
+              </span>
+            )}
           </div>
-          <p className="text-xs text-[var(--muted)] mt-2">{rows.length || Number(count) || 0} cases detected in simulation</p>
+          <p className="text-xs text-[var(--muted)] mt-1">{displayRuleName}{simId ? ` · ${simId}` : ""}</p>
+          <p className="text-[11px] text-[var(--muted)] mt-2">
+            {totalScanned} SAP record{totalScanned === 1 ? "" : "s"} scanned
+            {skipped > 0 ? ` · ${skipped} skipped` : ""}
+          </p>
         </div>
-        <button onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
+        <button onClick={() => dispatch(closeModal())} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
           <X size={18} />
         </button>
       </div>
 
+      {rows.length > 0 && (
+        <div className="px-8 py-3 grid grid-cols-2 sm:grid-cols-4 gap-3 border-b border-white/8 bg-white/[0.02]">
+          {[
+            { label: "Anomalies", value: rows.length, accent: "text-red-400" },
+            { label: "Critical / High", value: rows.filter((r) => r.riskScore >= 75).length, accent: "text-orange-400" },
+            { label: "Avg Risk Score", value: Math.round(rows.reduce((s, r) => s + r.riskScore, 0) / rows.length), accent: "text-yellow-400" },
+            { label: "Total Amount", value: rows.reduce((s, r) => s + r.amount.value, 0).toLocaleString(undefined, { maximumFractionDigits: 0 }), accent: "text-emerald-400" },
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-xl border border-white/8 bg-[var(--card)] px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">{stat.label}</p>
+              <p className={`text-lg font-semibold mt-0.5 ${stat.accent}`}>{stat.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="px-8 py-4 overflow-x-auto">
-        {loading && (
-          <div className="flex items-center justify-center gap-3 py-12">
-            <CircleNotch size={20} className="animate-spin text-blue-400" />
-            <span className="text-sm text-[var(--muted)]">Fetching anomalies from SAP...</span>
+        {rows.length === 0 && (
+          <div className="text-center py-14 space-y-3">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto">
+              <CheckCircle size={28} weight="fill" className="text-emerald-400" />
+            </div>
+            <p className="text-[var(--text)] text-sm font-semibold">No anomalies detected</p>
+            <p className="text-[var(--muted)] text-xs max-w-md mx-auto">
+              {initialAnomalies.length === 0 && count > 0
+                ? "Anomaly details are only available immediately after a live simulation run."
+                : "The simulation completed successfully with no matching fraud patterns in the scanned SAP data."}
+            </p>
           </div>
         )}
 
-        {!loading && rows.length === 0 && !error && (
-          <div className="text-center py-12">
-            <p className="text-[var(--muted)] text-sm">No anomalies detected for this rule and simulation.</p>
-          </div>
-        )}
-
-        {!loading && rows.length === 0 && error && (
-          <div className="text-center py-12">
-            <p className="text-sm font-semibold text-red-400">Error Loading Anomalies</p>
-            <p className="text-xs text-red-400/75 mt-1">{error}</p>
-          </div>
-        )}
-        
-        {!loading && visibleRows.length > 0 && (
-          <table className="w-full text-sm min-w-[1180px]">
-            <thead className="bg-[var(--bg)]">
+        {rows.length > 0 && (
+          <table className="w-full text-sm min-w-[1280px]">
+            <thead className="bg-[var(--bg)] sticky top-0">
               <tr className="border-b border-white/10">
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest w-8"></th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Case ID</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Transaction</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Document</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">#</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Original Doc</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Duplicate Doc</th>
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Vendor</th>
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Amount</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Risk Score</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">SAP Module</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Risk</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Level</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Module</th>
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Detected At</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/8">
-            {visibleRows.map((anom) => (
-              <tr key={anom.id} className="hover:bg-white/[0.025] transition-colors group">
-                <td className="px-3 py-3.5 text-[var(--muted)] group-hover:text-blue-400 cursor-pointer">
-                  <CaretRight size={14} />
-                </td>
-                <td className="px-3 py-3.5">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); openCaseInvestigation(anom.caseId); }}
-                    disabled={!anom.caseId || anom.caseId === "N/A"}
-                    className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer disabled:text-[var(--muted)] disabled:no-underline disabled:cursor-default"
-                  >
-                    {anom.caseId}
-                  </button>
-                </td>
-                <td className="px-3 py-3.5">
-                  <span className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer">{anom.transactionId}</span>
-                </td>
-                <td className="px-3 py-3.5 text-[12px] text-[var(--muted)] font-mono">{anom.document}</td>
-                <td className="px-3 py-3.5">
-                  <div className="text-[12px]">
-                    <p className="font-semibold text-[var(--text)]">{anom.vendor}</p>
-                    <p className="text-[10px] text-[var(--muted)]">{anom.vendorCode}</p>
-                  </div>
-                </td>
-                <td className="px-3 py-3.5">
-                  <div className="text-[12px] font-semibold text-[var(--text)]">
-                    {anom.amount.currency} {Number(anom.amount.value || 0).toLocaleString()}
-                  </div>
-                </td>
-                <td className="px-3 py-3.5">
-                  <div className="flex items-center gap-2 min-w-[86px]">
-                    <div className="w-12 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                      <div className={`h-full rounded-full ${getRiskColor(anom.riskScore)}`} style={{ width: `${Math.min(Math.max(Number(anom.riskScore) || 0, 0), 100)}%` }}></div>
+              {rows.map((anom, idx) => (
+                <tr key={anom.id} className="hover:bg-white/[0.025] transition-colors">
+                  <td className="px-3 py-3.5 text-[11px] text-[var(--muted)] font-mono">{idx + 1}</td>
+                  <td className="px-3 py-3.5 text-[12px] font-mono text-blue-400">{anom.document}</td>
+                  <td className="px-3 py-3.5 text-[12px] font-mono text-red-400/90">{anom.duplicateDocument}</td>
+                  <td className="px-3 py-3.5">
+                    <div className="text-[12px]">
+                      <p className="font-semibold text-[var(--text)]">{anom.vendor}</p>
+                      <p className="text-[10px] text-[var(--muted)]">{anom.vendorCode}</p>
                     </div>
-                    <span className={`text-[11px] font-semibold ${getRiskTextColor(anom.riskScore)}`}>{anom.riskScore}</span>
-                  </div>
-                </td>
-                <td className="px-3 py-3.5">
-                  <span className={`text-[11px] font-bold px-2 py-1 rounded ${getModuleBadgeStyle(anom.sapModule)}`}>
-                    {anom.sapModule}
-                  </span>
-                </td>
-                <td className="px-3 py-3.5 text-[12px] text-[var(--muted)] whitespace-nowrap">{formatDetectedAt(anom.detectedAt)}</td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-3 py-3.5 text-[12px] font-semibold text-[var(--text)] whitespace-nowrap">
+                    {anom.amount.currency} {Number(anom.amount.value || 0).toLocaleString()}
+                  </td>
+                  <td className="px-3 py-3.5">
+                    <div className="flex items-center gap-2 min-w-[86px]">
+                      <div className="w-12 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div className={`h-full rounded-full ${getRiskColor(anom.riskScore)}`} style={{ width: `${Math.min(Math.max(anom.riskScore, 0), 100)}%` }} />
+                      </div>
+                      <span className={`text-[11px] font-semibold ${getRiskTextColor(anom.riskScore)}`}>{anom.riskScore}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3.5">
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded border ${getRiskLevelStyle(anom.riskLevel)}`}>
+                      {anom.riskLevel}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3.5">
+                    <span className={`text-[11px] font-bold px-2 py-1 rounded ${getModuleBadgeStyle(anom.sapModule)}`}>
+                      {anom.sapModule}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3.5 text-[12px] text-[var(--muted)] whitespace-nowrap">{formatDetectedAt(anom.detectedAt)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
       </div>
 
       <div className="px-8 py-3 border-t border-white/10 flex items-center justify-between">
-        <p className="text-xs text-[var(--muted)]">Showing {rows.length} detected fraud cases</p>
+        <p className="text-xs text-[var(--muted)]">
+          {rows.length > 0
+            ? `Showing ${rows.length} anomaly preview${rows.length === 1 ? "" : " rows"}`
+            : "Preview only"}
+        </p>
         <button
-          onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }}
+          onClick={() => dispatch(closeModal())}
           className="px-6 py-2.5 rounded-lg bg-slate-700/40 hover:bg-slate-700/60 text-[var(--text)] text-sm font-semibold transition-colors"
         >
           Close
         </button>
       </div>
     </Modal>
-    {investigationCaseId && (
-      <CaseModal
-        caseId={investigationCaseId}
-        onClose={() => setInvestigationCaseId(null)}
-        onUpdate={() => {}}
-      />
-    )}
-    </>
   );
 }
 
@@ -1205,6 +1581,8 @@ function SimulationModal() {
   const [generatedMd, setGeneratedMd] = React.useState("");
   const [generating, setGenerating] = React.useState(false);
   const [genError, setGenError] = React.useState("");
+  const [fetchingAnomalies, setFetchingAnomalies] = React.useState(false);
+  const [liveError, setLiveError] = React.useState("");
 
   if (sim.step === 0 || !rule) return null;
   const thresholds = rule.thresholds || {
@@ -1340,6 +1718,7 @@ function SimulationModal() {
 
       try {
         setGenerating(true);
+        dispatch(setSimStep(5));
         const result = await generateTestDataAPI(rule.cdsCode, ruleContext);
         setGeneratedMd(result.output || "");
         dispatch(setSimStep(7));
@@ -1350,16 +1729,29 @@ function SimulationModal() {
           err?.message ||
           "Failed to generate test data";
         setGenError(msg);
+        dispatch(setSimStep(2));
       } finally {
         setGenerating(false);
       }
       return;
     }
 
-    // ── LIVE DATA branch (unchanged) ──
+    // ── LIVE DATA branch ──
+    setLiveError("");
+
+    const missingParams = (dynamicParams?.LIST || []).filter(
+      (param) => !dynamicPayload[param.name]
+    );
+    if (missingParams.length > 0) {
+      setLiveError(`Please fill in required parameters: ${missingParams.map((p) => p.label).join(", ")}`);
+      return;
+    }
+
     try {
-      // Call backend simulation API
-      await dispatch(runSimulation({
+      setFetchingAnomalies(true);
+      dispatch(setSimStep(5));
+
+      const simResult = await dispatch(runSimulation({
         ruleId: rule.id,
         config: {
           ...sim.config,
@@ -1369,10 +1761,12 @@ function SimulationModal() {
         },
       })).unwrap();
 
-      // Call anomalies endpoint
-      const params = new URLSearchParams();
+      const simPayload = simResult?.data || simResult;
+      const simIdValue = simPayload?.simId;
 
+      const params = new URLSearchParams();
       params.append("rule_id", rule.id);
+      if (simIdValue) params.append("sim_id", simIdValue);
 
       Object.entries(dynamicPayload).forEach(([key, value]) => {
         params.append(key, value);
@@ -1389,12 +1783,27 @@ function SimulationModal() {
       dispatch(openModal({
         type: "ANOMALIES",
         rule,
+        ruleName: rule.name,
         anomalies: anomalyData.anomalies || [],
         count: anomalyData.count || 0,
         ruleId: rule.id,
+        simId: simIdValue,
+        summary: {
+          totalRecords: anomalyData.total_records ?? 0,
+          skipped: anomalyData.skipped ?? 0,
+          errors: anomalyData.errors ?? 0,
+        },
       }));
     } catch (err) {
       console.error("Simulation failed:", err);
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to run simulation against live SAP data";
+      setLiveError(msg);
+      dispatch(setSimStep(4));
+    } finally {
+      setFetchingAnomalies(false);
     }
   };
 
@@ -1586,14 +1995,15 @@ function SimulationModal() {
           ⚠ Simulation runs against SAP {sim.selectedEnv?.id}. Ensure data privacy compliance before proceeding.
         </p>
         {sim.error && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{sim.error}</p>}
+        {liveError && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{liveError}</p>}
       </div>
       <div className="px-6 pb-5 flex gap-2">
         <button
-          disabled={sim.loading }
+          disabled={sim.loading || fetchingAnomalies}
           onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          {sim.loading ? <CircleNotch size={14} className="animate-spin" /> : <Play size={14} weight="fill" />} Run Simulation
+          {(sim.loading || fetchingAnomalies) ? <CircleNotch size={14} className="animate-spin" /> : <Play size={14} weight="fill" />} Run Simulation
         </button>
         {cancelBtn}
       </div>
@@ -1626,37 +2036,13 @@ function SimulationModal() {
 
   // Step 7 — Generated test data result (Markdown from generate_test_data_agent)
   if (sim.step === 7) return (
-    <Modal onClose={() => dispatch(closeSimulation())} width="max-w-3xl">
-      <div className="px-6 pt-5 pb-4 flex items-center justify-between border-b border-white/8">
-        <div>
-          <h2 className="text-[15px] font-semibold text-[var(--text)]">Generated Test Data</h2>
-          <p className="text-xs text-[var(--muted)] mt-0.5">{rule.name}</p>
-        </div>
-        {closeBtn}
-      </div>
-      <div className="px-6 py-5">
-        {generatedMd ? (
-          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--text)] bg-[var(--card)] border border-white/10 rounded-xl p-4 font-mono">
-            {generatedMd}
-          </pre>
-        ) : (
-          <p className="text-xs text-[var(--muted)]">No output returned by the agent.</p>
-        )}
-      </div>
-      <div className="px-6 pb-5 flex gap-2">
-        <button
-          onClick={() => { setGeneratedMd(""); setGenError(""); dispatch(setSimStep(2)); }}
-          className="px-4 py-2.5 rounded-xl border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 hover:text-[var(--text)] transition-colors"
-        >
-          Regenerate
-        </button>
-        <button
-          onClick={() => dispatch(closeSimulation())}
-          className="flex-1 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold transition-all"
-        >
-          Done
-        </button>
-      </div>
+    <Modal onClose={() => dispatch(closeSimulation())} width="max-w-6xl">
+      <GeneratedTestDataPanel
+        markdown={generatedMd}
+        ruleName={rule.name}
+        onClose={() => dispatch(closeSimulation())}
+        onRegenerate={() => { setGeneratedMd(""); setGenError(""); dispatch(setSimStep(2)); }}
+      />
     </Modal>
   );
 
