@@ -149,35 +149,23 @@ export async function sendMessage({ message, sessionId, ruleContext }) {
 
     // 🧠 Convert backend → UI format
     const aiText = data.reply || "I've processed your request.";
-
     const isRuleReady = data.type === "rule_result";
 
     return {
       type: isRuleReady ? "rule_result" : "info",
-
       // reply: removeCodeBlocks(aiText),
       reply: aiText,
-
       module: detectModule(data.intent),
-
       riskScore: estimateRisk(data),
-
       cdsCode: data.cdsCode || "",
-
       cdsBaseinfo: data.cdsBaseinfo || "",
-
       cdsXml: data.cdsXml || "",
-
       cdsSrvd: data.cdsSrvd || "",
-
       cdsSrvb: data.cdsSrvb || "",
-
       dynamicParameters: normalizeDynamicParameters(
         data.dynamicParameters || data.parameters || data.PARAMETERS || {}
       ),
-
       threshold: extractAmount(message),
-
       timeDiff: extractDays(message),
     };
 
