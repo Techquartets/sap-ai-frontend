@@ -168,6 +168,10 @@ export async function sendMessage({ message, sessionId, ruleContext }) {
 
       cdsXml: data.cdsXml || "",
 
+      cdsSrvd: data.cdsSrvd || "",
+
+      cdsSrvb: data.cdsSrvb || "",
+
       dynamicParameters: normalizeDynamicParameters(
         data.dynamicParameters || data.parameters || data.PARAMETERS || {}
       ),

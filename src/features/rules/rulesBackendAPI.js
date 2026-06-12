@@ -204,6 +204,8 @@ const payload = {
   cdsCode: rule.cdsCode || "",
   cdsBaseinfo: rule.cdsBaseinfo || "",
   cdsXml: rule.cdsXml || "",
+  cdsSrvd: rule.cdsSrvd || "",
+  cdsSrvb: rule.cdsSrvb || "",
   viewName,
   module: rule.module || "FI",
   environment,
