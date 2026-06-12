@@ -385,6 +385,8 @@ export default function AIRuleArchitect() {
           cds: resp.cdsCode,
           cdsBaseinfo: resp.cdsBaseinfo,
           cdsXml: resp.cdsXml,
+          cdsSrvd: resp.cdsSrvd,
+          cdsSrvb: resp.cdsSrvb,
           dynamicParameters: resp.dynamicParameters || {},
         });
 
@@ -399,6 +401,8 @@ export default function AIRuleArchitect() {
           cds:        resp.cdsCode,
           cdsBaseinfo:   resp.cdsBaseinfo,
           cdsXml:        resp.cdsXml,
+          cdsSrvd:       resp.cdsSrvd,
+          cdsSrvb:       resp.cdsSrvb,
           dynamicParameters: resp.dynamicParameters || {},
           msgId:      added.id,
         });
@@ -432,6 +436,8 @@ export default function AIRuleArchitect() {
       cds: message.cds || message.cdsCode || "",
       cdsBaseinfo: message.cdsBaseinfo || "",
       cdsXml: message.cdsXml || "",
+      cdsSrvd: message.cdsSrvd || "",
+      cdsSrvb: message.cdsSrvb || "",
       dynamicParameters: normalizeDynamicParameters(
         message.dynamicParameters || message.parameters || message.PARAMETERS || {}
       ),
@@ -498,6 +504,8 @@ export default function AIRuleArchitect() {
       cdsCode: currentRule.cds || currentRule.cdsCode || "",
       cdsBaseinfo: currentRule.cdsBaseinfo || "",
       cdsXml: currentRule.cdsXml || "",
+      cdsSrvd: currentRule.cdsSrvd || "",
+      cdsSrvb: currentRule.cdsSrvb || "",
       dynamicParameters: resolvedDynamicParameters,
       parameters: resolvedDynamicParameters,
 

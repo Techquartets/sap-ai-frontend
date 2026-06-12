@@ -196,9 +196,7 @@ export const deployRuleToEnvAPI = async (ruleId, environment) => {
 
   // First fetch rule details
   const ruleResponse = await apiClient.get(`${API_BASE}/`);
-
   const rules = ruleResponse.data.data || [];
-
   const rule = rules.find((r) => r.id === ruleId);
 
   if (!rule) {
@@ -223,6 +221,8 @@ const payload = {
   cdsCode: rule.cdsCode || "",
   cdsBaseinfo: rule.cdsBaseinfo || "",
   cdsXml: rule.cdsXml || "",
+  cdsSrvd: rule.cdsSrvd || "",
+  cdsSrvb: rule.cdsSrvb || "",
   viewName,
   module: rule.module || "FI",
   environment,
