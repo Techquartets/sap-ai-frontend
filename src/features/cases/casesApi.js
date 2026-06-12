@@ -258,9 +258,9 @@ export const fetchCaseDetailAPI = async (id) => {
       ruleName: "Duplicate Invoice Check",
       ruleId: c.ruleId || "RULE-DUP-001",
       environment: "SAP",
-      status: c.reviewed ? "Reviewed" : "New",
-      closureStatus: null,
-      assignee: c.reviewedBy || "Unassigned",
+      status: c.caseStatus || c.status || (c.reviewed ? "Closed" : "New"),
+      closureStatus: c.closureStatus || null,
+      assignee: c.assignee || c.reviewedBy || "Unassigned",
       createdAt: c.detectedAt,
 
       detail: {
@@ -491,16 +491,34 @@ export const fetchCaseDetailAPI = async (id) => {
   }
 };
 
+function mapCaseWorkflowFromApi(c) {
+  if (!c) return {};
+  return {
+    id: c.caseId || c.id,
+    status: c.caseStatus || c.status || "New",
+    closureStatus: c.closureStatus || null,
+    assignee: c.assignee || "Unassigned",
+  };
+}
+
 export const updateCaseAPI = async (id, payload) => {
-  await delay(400);
-
-  const index = SEED_CASES.findIndex(c => c.id === id);
-  if (index !== -1) {
-    SEED_CASES[index] = { ...SEED_CASES[index], ...payload };
-    saveCases();
+  try {
+    const response = await apiClient.patch(
+      `/sap/cases/${encodeURIComponent(id)}/`,
+      payload
+    );
+    const apiData = response.data;
+    if (apiData?.status !== "success") {
+      return { success: false, error: apiData?.message || "Failed to update case" };
+    }
+    return { success: true, data: mapCaseWorkflowFromApi(apiData.data) };
+  } catch (error) {
+    console.error("updateCaseAPI error:", error);
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message || "Failed to update case",
+    };
   }
-
-  return { success:true, data:{ id, ...payload } };
 };
 
 export const createTaskAPI = async (caseId, task) => {
@@ -509,15 +527,23 @@ export const createTaskAPI = async (caseId, task) => {
 };
 
 export const assignCaseAPI = async (id, assignee) => {
-  await delay(350);
-
-  const index = SEED_CASES.findIndex(c => c.id === id);
-  if (index !== -1) {
-    SEED_CASES[index].assignee = assignee;
-    saveCases();
+  try {
+    const response = await apiClient.patch(
+      `/sap/cases/${encodeURIComponent(id)}/`,
+      { assignee }
+    );
+    const apiData = response.data;
+    if (apiData?.status !== "success") {
+      return { success: false, error: apiData?.message || "Failed to assign case" };
+    }
+    return { success: true, data: mapCaseWorkflowFromApi(apiData.data) };
+  } catch (error) {
+    console.error("assignCaseAPI error:", error);
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message || "Failed to assign case",
+    };
   }
-
-  return { success:true, data:{ id, assignee } };
 };
 
 export const TASK_PROCESSORS = [

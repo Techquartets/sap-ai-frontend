@@ -26,7 +26,7 @@ import {
   Robot, FunnelSimple, FileText, Clock, Users,
   CurrencyDollar, ShieldWarning, GitBranch, UserCircle,
   ListChecks, ArrowCounterClockwise, TrendUp, Plus, Paperclip,
-  UserPlus, ArrowRight, CheckFat,
+  UserPlus, ArrowRight, CheckFat, DownloadSimple,
 } from "@phosphor-icons/react";
 import { loadRiskConfigs, resolveRiskLevelByAmount, RISK_CONFIG_STORAGE_KEY } from "../features/cases/riskConfig";
 
@@ -94,6 +94,183 @@ function InfoCell({ label, value, mono = false, cls = "" }) {
   );
 }
 
+function escHtml(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function buildCaseReportHtml(caseData, detail) {
+  if (!caseData || !detail) return "";
+  const d = detail;
+  const printedAt = new Date().toLocaleString();
+  const fi = d.financialImpact || { potentialLoss: 0, recoveryProbability: 0, estimatedRecovery: 0 };
+  const riskIndicators = d.riskIndicators || [];
+  const behavioralPatterns = d.behavioralPatterns || [];
+  const complianceIssues = d.complianceIssues || [];
+  const networkAnalysis = d.networkAnalysis || [];
+  const relatedTransactions = d.relatedTransactions || [];
+  const auditTrail = d.auditTrail || [];
+  const anomalyIndicators = d.anomalyIndicators || [];
+  const evidence = d.evidence || [];
+  const aiRecommendations = d.aiRecommendations || [];
+  const aiSummary = d.aiSummary || { confidence: 0, recommendation: "", summary: "", keyFindings: [], riskAssessment: "" };
+  const ruleInfo = d.ruleInfo || {};
+  const transaction = d.transaction || {};
+  const userInfo = d.userInfo || {};
+  const customerDetails = d.customerDetails || {};
+  const section = (title, body) => `<section class="section"><h2>${escHtml(title)}</h2>${body}</section>`;
+  const grid = (cells) => `<div class="grid">${cells.map(c => `<div class="cell"><span class="lbl">${escHtml(c.label)}</span><span class="val${c.mono ? " mono" : ""}">${escHtml(c.value ?? "—")}</span></div>`).join("")}</div>`;
+  const list = (items) => `<ul>${items.map(i => `<li>${escHtml(i)}</li>`).join("")}</ul>`;
+
+  const riskRows = riskIndicators.map(r =>
+    `<div class="card"><div class="card-hdr"><strong>${escHtml(r.label)}</strong><span class="score">${r.score}</span></div>${r.bullets.map(b => `<p class="bullet">• ${escHtml(b)}</p>`).join("")}</div>`
+  ).join("");
+
+  const patternRows = behavioralPatterns.map(p =>
+    `<div class="card"><div class="card-hdr"><strong>${escHtml(p.name)}</strong><span class="tag">${escHtml(p.severity)}</span></div><p>Frequency: ${escHtml(p.frequency)}</p><p>Last: ${escHtml(p.last)}</p></div>`
+  ).join("");
+
+  const complianceRows = complianceIssues.map(c =>
+    `<div class="card"><div class="card-hdr"><strong>${escHtml(c.law)}</strong><span class="tag">${escHtml(c.severity)}</span></div><p>${escHtml(c.issue)}</p><p class="muted">Penalty: ${escHtml(c.penalty)}</p></div>`
+  ).join("");
+
+  const networkRows = networkAnalysis.map(n =>
+    `<tr><td class="mono">${escHtml(n.entityId)}</td><td>${escHtml(n.type)}</td><td>${escHtml(n.relationship)}</td><td>${escHtml(n.riskLevel)}</td></tr>`
+  ).join("");
+
+  const relatedRows = relatedTransactions.map(t =>
+    `<tr><td class="mono">${escHtml(t.docId)}</td><td>${escHtml(t.type)}</td><td>${escHtml(t.date)}</td><td>${escHtml(t.amount)}</td><td>${escHtml(t.status)}</td></tr>`
+  ).join("");
+
+  const auditRows = auditTrail.map(a =>
+    `<div class="audit"><div class="audit-hdr"><strong>${escHtml(a.event)}</strong><span>${escHtml(a.timestamp)}</span></div><p class="muted">By: ${escHtml(a.by)}</p><p>${escHtml(a.desc)}</p></div>`
+  ).join("");
+
+  const anomalyRows = anomalyIndicators.map(a =>
+    `<div class="card"><div class="card-hdr"><strong>${escHtml(a.name)}</strong><span class="tag">${escHtml(a.severity)}</span></div><p>${escHtml(a.desc)}</p></div>`
+  ).join("");
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Case ${escHtml(caseData.id)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #111; margin: 0; padding: 24px 32px; font-size: 12px; line-height: 1.45; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: #555; margin-bottom: 16px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 16px; background: #f4f6f8; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 20px; }
+  .meta span { font-size: 11px; }
+  .meta strong { display: block; font-size: 10px; text-transform: uppercase; color: #666; letter-spacing: 0.04em; }
+  .section { margin-bottom: 18px; page-break-inside: avoid; }
+  .section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: #333; border-bottom: 2px solid #2563eb; padding-bottom: 4px; margin: 0 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .cell, .card { border: 1px solid #ddd; border-radius: 4px; padding: 8px 10px; background: #fafafa; }
+  .lbl { display: block; font-size: 9px; text-transform: uppercase; color: #666; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .val { font-size: 12px; font-weight: 600; }
+  .mono { font-family: Consolas, monospace; font-size: 11px; }
+  .card-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .score { font-size: 16px; font-weight: 700; }
+  .tag { font-size: 9px; text-transform: uppercase; background: #eee; padding: 2px 6px; border-radius: 3px; }
+  .bullet { margin: 2px 0; color: #333; }
+  .muted { color: #666; font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  th { background: #f0f0f0; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; }
+  ul { margin: 6px 0; padding-left: 18px; }
+  li { margin-bottom: 3px; }
+  .audit { border-left: 3px solid #2563eb; padding-left: 10px; margin-bottom: 10px; }
+  .audit-hdr { display: flex; justify-content: space-between; }
+  .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 10px; color: #888; }
+  @media print { body { padding: 12px 16px; } }
+</style></head><body>
+  <h1>Case Investigation Report</h1>
+  <p class="subtitle">${escHtml(caseData.title)}</p>
+  <div class="meta">
+    <span><strong>Case ID</strong>${escHtml(caseData.id)}</span>
+    <span><strong>Risk Score</strong>${caseData.riskScore}/100</span>
+    <span><strong>Status</strong>${escHtml(caseData.status)}</span>
+    <span><strong>Resolution</strong>${escHtml(caseData.closureStatus || "—")}</span>
+    <span><strong>Assignee</strong>${escHtml(caseData.assignee)}</span>
+    <span><strong>Printed</strong>${escHtml(printedAt)}</span>
+  </div>
+  ${section("Case Overview", grid([
+    { label: "Status", value: caseData.status },
+    { label: "Assignee", value: caseData.assignee },
+    { label: "Rule", value: caseData.ruleName || ruleInfo.ruleName },
+    { label: "Environment", value: ruleInfo.environment },
+  ]))}
+  ${section("AI Analysis Summary", `
+    <p><strong>${aiSummary.confidence}% Confidence</strong> — Recommendation: ${escHtml(aiSummary.recommendation)}</p>
+    <p>${escHtml(aiSummary.summary)}</p>
+    <p class="lbl">Key Findings</p>${list(aiSummary.keyFindings || [])}
+    <p class="lbl">Risk Assessment</p><p>${escHtml(aiSummary.riskAssessment)}</p>`)}
+  ${section("Risk Indicators", `<div class="grid-2">${riskRows}</div>`)}
+  ${section("Financial Impact", `<div class="grid-3">
+    <div class="cell"><span class="lbl">Potential Loss</span><span class="val">$${Number(fi.potentialLoss).toLocaleString()} USD</span></div>
+    <div class="cell"><span class="lbl">Recovery Probability</span><span class="val">${fi.recoveryProbability}%</span></div>
+    <div class="cell"><span class="lbl">Estimated Recovery</span><span class="val">$${Number(fi.estimatedRecovery).toLocaleString()} USD</span></div>
+  </div>`)}
+  ${section(`Behavioral Patterns (${behavioralPatterns.length})`, `<div class="grid-2">${patternRows}</div>`)}
+  ${section(`Compliance Issues (${complianceIssues.length})`, complianceRows)}
+  ${section("Network Analysis", `<table><thead><tr><th>Entity ID</th><th>Type</th><th>Relationship</th><th>Risk</th></tr></thead><tbody>${networkRows}</tbody></table>`)}
+  ${section("Rule Information", grid([
+    { label: "Rule Name", value: ruleInfo.ruleName },
+    { label: "Rule ID", value: ruleInfo.ruleId, mono: true },
+    { label: "Environment", value: ruleInfo.environment },
+    { label: "Detection Time", value: ruleInfo.detectionTime },
+  ]))}
+  ${section("Transaction Details", grid([
+    { label: "Document Number", value: transaction.documentNumber, mono: true },
+    { label: "Amount", value: transaction.amount },
+    { label: "Posting Date", value: transaction.postingDate },
+    { label: "Document Date", value: transaction.documentDate },
+    { label: "Company Code", value: transaction.companyCode },
+    { label: "Fiscal Year/Period", value: transaction.fiscalYearPeriod },
+    { label: "Reference", value: transaction.reference, mono: true },
+    { label: "Header Text", value: transaction.headerText },
+  ]))}
+  ${section("User Information", grid([
+    { label: "User ID", value: userInfo.userId, mono: true },
+    { label: "User Name", value: userInfo.userName },
+    { label: "Role", value: userInfo.role },
+    { label: "Department", value: userInfo.department },
+    { label: "Location", value: userInfo.location },
+    { label: "Last Login", value: userInfo.lastLogin },
+    { label: "IP Address", value: userInfo.ipAddress, mono: true },
+  ]))}
+  ${section("Customer Details", grid([
+    { label: "ID", value: customerDetails.id, mono: true },
+    { label: "Name", value: customerDetails.name },
+    { label: "Account Group", value: customerDetails.accountGroup },
+    { label: "Country", value: customerDetails.country },
+    { label: "City", value: customerDetails.city },
+    { label: "Payment Terms", value: customerDetails.paymentTerms },
+    { label: "Bank Account", value: customerDetails.bankAccount, mono: true },
+  ]))}
+  ${(anomalyIndicators.length ? section(`System Alerts (${anomalyIndicators.length})`, anomalyRows) : "")}
+  ${section(`Related Transactions (${relatedTransactions.length})`, `<table><thead><tr><th>Document ID</th><th>Type</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>${relatedRows}</tbody></table>`)}
+  ${section("Audit Trail", auditRows)}
+  ${section("Description & Evidence", `<p>${escHtml(d.description || "")}</p><p class="lbl">Evidence</p>${list(evidence)}<p class="lbl">AI Recommendations</p>${list(aiRecommendations)}`)}
+  <div class="footer">SAP-AI Case Management — Confidential investigation record</div>
+</body></html>`;
+
+  return html;
+}
+
+function downloadCaseReport(caseData, detail) {
+  const html = buildCaseReportHtml(caseData, detail);
+  if (!html) return;
+
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `Case-Report-${caseData.id || "unknown"}.html`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ─── In-modal toast (replaces browser alert) ──────────────────────────────────
 function Toast({ msg, onClose }) {
   useEffect(() => { const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, [onClose]);
@@ -120,8 +297,7 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
 
   const doAssign = async (name) => {
     setAssigning(name);
-    await assignCaseAPI(caseId, name);
-    onAssign(name);
+    await onAssign(name);
     setAssigning(null);
   };
 
@@ -225,23 +401,31 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
     const payload = MAP[action] || {};
     const r = await updateCaseAPI(data.id, payload);
     if (r.success) {
-      setData(p => ({ ...p, ...payload }));
-      onUpdate(data.id, payload);
-      // Show in-modal toast instead of browser alert
-      if (payload.status === "Closed") {
-        setToast(`Case ${data.id} closed as: ${payload.closureStatus}`);
+      const updates = { ...payload, ...(r.data || {}) };
+      setData(p => ({ ...p, ...updates }));
+      onUpdate(data.id, updates);
+      if (updates.status === "Closed") {
+        setToast(`Case ${data.id} closed as: ${updates.closureStatus}`);
       } else if (action === "Escalate") {
         setToast(`Case ${data.id} escalated to Senior Team`);
       } else if (action === "Reassign") {
         setToast(`Case ${data.id} marked as Investigating`);
       }
+    } else {
+      setToast(r.error || "Failed to update case");
     }
     setSaving(false);
   }, [data, saving, onUpdate]);
 
-  const handleAssign = useCallback((name) => {
-    setData(p => ({ ...p, assignee: name }));
-    onUpdate(caseId, { assignee: name });
+  const handleAssign = useCallback(async (name) => {
+    const r = await assignCaseAPI(caseId, name);
+    if (!r.success) {
+      setToast(r.error || "Failed to assign case");
+      return;
+    }
+    const updates = { assignee: name, ...(r.data?.status ? { status: r.data.status } : {}) };
+    setData(p => ({ ...p, ...updates }));
+    onUpdate(caseId, updates);
     setShowAssign(false);
     setToast(`Case assigned to ${name}`);
   }, [caseId, onUpdate]);
@@ -259,6 +443,10 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
   const d = data?.detail;
   const isClosed = data?.status === "Closed";
   const isUnassigned = !data?.assignee || data.assignee === "Unassigned";
+
+  const handleDownloadReport = useCallback(() => {
+    if (data?.detail) downloadCaseReport(data, data.detail);
+  }, [data]);
 
   return (
     <>
@@ -770,9 +958,15 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
                     </span>
                   </span>
                 </div>
-                <button onClick={onClose} className="px-4 py-2 rounded-lg bg-[#1e2030] border border-[var(--border)] text-[var(--text)] text-[12px] font-semibold hover:bg-white/5 transition-colors">
-                  Close
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={handleDownloadReport}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[var(--border)] text-[var(--text)] text-[12px] font-semibold hover:bg-white/5 transition-colors">
+                    <DownloadSimple size={13} /> Download Case Report
+                  </button>
+                  <button onClick={onClose} className="px-4 py-2 rounded-lg bg-[#1e2030] border border-[var(--border)] text-[var(--text)] text-[12px] font-semibold hover:bg-white/5 transition-colors">
+                    Close
+                  </button>
+                </div>
               </div>
 
             ) : isUnassigned ? (
@@ -887,9 +1081,9 @@ export default function CaseManagement() {
               ruleName: "Duplicate Invoice Detection",
               ruleId: "RULE-DUPLICATE-INV",
               environment: "PRODUCTION",
-              status: "New",
-              closureStatus: null,
-              assignee: "Unassigned",
+              status: a.caseStatus || a.status || "New",
+              closureStatus: a.closureStatus || null,
+              assignee: a.assignee || "Unassigned",
               createdAt: new Date(a.detectedAt || a.detected_at).toLocaleString(),
               // Keep original anomaly data for detail modal
               _anomaly: a

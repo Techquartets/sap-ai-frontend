@@ -173,6 +173,34 @@ export const runSimulationAPI = async (ruleId, config) => {
 // GENERATE TEST DATA (invokes generate_test_data_agent in backend)
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+// ONE-TIME SCHEDULE RUN (fetch from SAP OData + persist to DB)
+// ─────────────────────────────────────────────────────────────
+
+export const runOneTimeScheduleAPI = async (ruleId, dynamicParams = {}) => {
+  const params = new URLSearchParams();
+  params.append("rule_id", ruleId);
+  params.append("persist", "1");
+
+  Object.entries(dynamicParams).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.append(key, value);
+    }
+  });
+
+  const response = await apiClient.get(
+    `/sap/anomalies/detected/?${params.toString()}`
+  );
+
+  return {
+    success: true,
+    anomalies: response.data?.anomalies || [],
+    count: response.data?.count || 0,
+    created: response.data?.created || 0,
+    updated: response.data?.updated || 0,
+  };
+};
+
 export const generateTestDataAPI = async (cdsSource, ruleContext = "") => {
   const response = await apiClient.post(
     "/sap/generate-test-data/",

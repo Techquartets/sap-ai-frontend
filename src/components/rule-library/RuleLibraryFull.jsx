@@ -48,7 +48,7 @@ import { Server } from "lucide-react";
 // ✅ NEW: Import backend services if not passed as props
 import { ruleService } from "../../services/ruleService";
 import apiClient from "../../services/apiClient";
-import { generateTestDataAPI } from "../../features/rules/rulesBackendAPI";
+import { generateTestDataAPI, runOneTimeScheduleAPI } from "../../features/rules/rulesBackendAPI";
 
 // ─── Visual Config (all hardcoded — no dynamic Tailwind interpolation) ────────
 
@@ -1386,11 +1386,13 @@ function AnomaliesModal() {
     rule,
     simId,
     count,
+    source,
     anomalies: initialAnomalies = [],
     summary = {},
   } = modalData;
 
-  const displayRuleName = rule?.name || ruleName || "Rule Simulation";
+  const showCaseId = source === "schedule";
+  const displayRuleName = rule?.name || ruleName || (showCaseId ? "Scheduled Run" : "Rule Simulation");
 
   const normalizeAnomaly = React.useCallback((raw, index) => {
     const amountRaw = raw.amount?.value ?? raw.amount_value ?? raw.amount ?? raw.total_amount ?? 0;
@@ -1405,10 +1407,12 @@ function AnomaliesModal() {
 
     return {
       id: raw.id || raw.caseId || raw.case_id || `${raw.transactionId || raw.transaction_id || "ANOM"}-${index}`,
-      caseId: raw.caseId || raw.case_id || raw.case || "N/A",
+      caseId: raw.caseId || raw.case_id || raw.case || `C-${String(index + 1).padStart(4, "0")}`,
       transactionId: raw.transactionId || raw.transaction_id || raw.txn_id || "N/A",
       document: raw.document || raw.document_no || raw.documentNumber || raw.document_id || "N/A",
-      duplicateDocument: raw.duplicateDocument || raw.duplicate_document || raw.duplicateInvoiceDoc || "—",
+      duplicateDocument:
+        raw.duplicateDocument || raw.duplicate_document || raw.duplicate_invoice_doc
+        || raw.duplicateInvoiceDoc || raw.raw?.DuplicateInvoiceDoc || "—",
       vendor: raw.vendor || raw.vendor_name || "Unknown Vendor",
       vendorCode: raw.vendorCode || raw.vendor_code || raw.vendor_id || "—",
       amount: { currency, value: amountValue },
@@ -1534,6 +1538,9 @@ function AnomaliesModal() {
             <thead className="bg-[var(--bg)] sticky top-0">
               <tr className="border-b border-white/10">
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">#</th>
+                {showCaseId && (
+                  <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Case ID</th>
+                )}
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Original Doc</th>
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Duplicate Doc</th>
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Vendor</th>
@@ -1548,6 +1555,9 @@ function AnomaliesModal() {
               {rows.map((anom, idx) => (
                 <tr key={anom.id} className="hover:bg-white/[0.025] transition-colors">
                   <td className="px-3 py-3.5 text-[11px] text-[var(--muted)] font-mono">{idx + 1}</td>
+                  {showCaseId && (
+                    <td className="px-3 py-3.5 text-[12px] font-mono text-violet-400">{anom.caseId}</td>
+                  )}
                   <td className="px-3 py-3.5 text-[12px] font-mono text-blue-400">{anom.document}</td>
                   <td className="px-3 py-3.5 text-[12px] font-mono text-red-400/90">{anom.duplicateDocument}</td>
                   <td className="px-3 py-3.5">
@@ -1814,6 +1824,7 @@ function SimulationModal() {
 
       dispatch(openModal({
         type: "ANOMALIES",
+        source: "simulation",
         rule,
         ruleName: rule.name,
         anomalies: anomalyData.anomalies || [],
@@ -2124,24 +2135,148 @@ function ConfirmModal() {
 // ─── Schedule Modal ────────────────────────────────────────────────────────────
 function ScheduleModal() {
   const dispatch = useAppDispatch();
-  const { modalType, selected, scheduleConfig, scheduleError, deployEnvs } = useAppSelector((s) => s.rules);
+  const { modalType, selected, scheduleConfig, scheduleError, deployEnvs, list } = useAppSelector((s) => s.rules);
+
+  // One-Time targets a single rule (the first selected). Recurring keeps the
+  // existing bulk behavior.
+  const rule = list.find((r) => r.id === selected[0]) || null;
+
+  const [dynamicParams, setDynamicParams] = React.useState(null);
+  const [loadingParams, setLoadingParams] = React.useState(false);
+  const [paramValues, setParamValues] = React.useState({});
+  const [running, setRunning] = React.useState(false);
+  const [runError, setRunError] = React.useState("");
+
+  const isOneTime = scheduleConfig.type === "ONE_TIME";
+
+  const normalizeDynamicParams = (raw) => {
+    if (!raw) return null;
+    if (raw.LIST && Array.isArray(raw.LIST)) return raw;
+    if (raw.PARAMETERS?.LIST && Array.isArray(raw.PARAMETERS.LIST)) return raw.PARAMETERS;
+    if (Array.isArray(raw)) return { LIST: raw };
+    return null;
+  };
+
+  const getInputType = (abapType) => {
+    if (!abapType) return "text";
+    const lower = abapType.toLowerCase();
+    if (lower.includes("dats") || lower.includes("date")) return "date";
+    if (lower.includes("tims") || lower.includes("time")) return "time";
+    if (lower.includes("dec") || lower.includes("float") || lower.includes("numc")) return "number";
+    return "text";
+  };
+
+  // Fetch dynamic CDS parameters for the One-Time tab (same source as the
+  // simulation modal).
+  React.useEffect(() => {
+    if (modalType === "SCHEDULE" && isOneTime && rule && !dynamicParams && !loadingParams) {
+      setLoadingParams(true);
+      import('../../features/rules/rulesBackendAPI').then(({ fetchRuleDetailsAPI }) => {
+        fetchRuleDetailsAPI(rule.id)
+          .then((res) => {
+            const normalized = normalizeDynamicParams(
+              res.dynamicParameters || res.data?.dynamicParameters || res.data?.parameters || rule.dynamicParameters || rule.parameters
+            );
+            if (normalized) setDynamicParams(normalized);
+            setLoadingParams(false);
+          })
+          .catch((err) => {
+            console.error('Failed to fetch dynamic parameters:', err);
+            setLoadingParams(false);
+          });
+      });
+    }
+  }, [modalType, isOneTime, rule?.id]);
+
   if (modalType !== "SCHEDULE") return null;
 
   const dateError = scheduleConfig.fromDate && scheduleConfig.toDate &&
     new Date(scheduleConfig.toDate) < new Date(scheduleConfig.fromDate);
-
-  const handleCreate = () => {
-    if (dateError) { dispatch(setScheduleError("End date must be after start date.")); return; }
-    if (!scheduleConfig.environment) { dispatch(setScheduleError("Please select a target environment.")); return; }
-    console.info("Schedule created:", { ids: selected, config: scheduleConfig });
-    dispatch(closeModal());
-  };
 
   const envOpts = deployEnvs.length ? deployEnvs : [
     { id: "DEV", name: "Development (DEV)" },
     { id: "QAS", name: "QA / Testing (QAS)" },
     { id: "PROD", name: "Production (PRD)" },
   ];
+
+  const handleCreate = async () => {
+    // ── Recurring: deferred (no scheduler infra yet) ──
+    if (!isOneTime) {
+      if (dateError) { dispatch(setScheduleError("End date must be after start date.")); return; }
+      if (!scheduleConfig.environment) { dispatch(setScheduleError("Please select a target environment.")); return; }
+      console.info("Schedule created:", { ids: selected, config: scheduleConfig });
+      dispatch(closeModal());
+      return;
+    }
+
+    // ── One-Time: run now against SAP OData + persist to DB ──
+    if (!rule) { setRunError("No rule selected."); return; }
+
+    const dynamicPayload = {};
+    (dynamicParams?.LIST || []).forEach((param) => {
+      const value = paramValues[param.name];
+      if (value !== undefined && value !== null && value !== "") {
+        dynamicPayload[param.name] = value;
+      }
+    });
+
+    try {
+      setRunning(true);
+      setRunError("");
+      const res = await runOneTimeScheduleAPI(rule.id, dynamicPayload);
+      dispatch(closeModal());
+      dispatch(openModal({
+        type: "ANOMALIES",
+        source: "schedule",
+        rule,
+        ruleId: rule.id,
+        anomalies: res.anomalies || [],
+        count: res.count || 0,
+      }));
+    } catch (err) {
+      console.error("One-time schedule run failed:", err);
+      setRunError(
+        err?.response?.data?.message || err?.message || "Failed to run schedule"
+      );
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const renderDynamicFields = () => {
+    if (loadingParams) {
+      return (
+        <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400">
+          Loading CDS parameters...
+        </div>
+      );
+    }
+    if (!dynamicParams?.LIST || dynamicParams.LIST.length === 0) {
+      return (
+        <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+          ⚠ No CDS View Parameters available for this rule.
+        </p>
+      );
+    }
+    return (
+      <div className="space-y-3">
+        <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">CDS View Parameters</p>
+        {dynamicParams.LIST.map((param) => (
+          <div key={param.name}>
+            <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">{param.label}</label>
+            <input
+              type={getInputType(param.type)}
+              placeholder={param.label}
+              value={paramValues[param.name] || ""}
+              onChange={(e) => setParamValues((p) => ({ ...p, [param.name]: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
+            />
+            <p className="text-[10px] text-[var(--muted)] mt-0.5">{param.type}</p>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <Modal onClose={() => dispatch(closeModal())} width="max-w-lg">
@@ -2151,13 +2286,21 @@ function ScheduleModal() {
       </div>
 
       <div className="px-6 py-5 space-y-5">
-        {/* Selected rules pills */}
+        {/* Target rule */}
         <div className="p-3.5 rounded-xl border border-white/8 bg-white/[0.025]">
-          <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">Selected Rules</p>
+          <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">
+            {isOneTime ? "Target Rule" : "Selected Rules"}
+          </p>
           <div className="flex flex-wrap gap-1.5">
-            {selected.map((id) => (
-              <span key={id} className="px-2.5 py-1 rounded-lg bg-[var(--primary)]/20 text-[var(--primary)] text-xs font-mono font-semibold">{id}</span>
-            ))}
+            {isOneTime ? (
+              rule
+                ? <span className="px-2.5 py-1 rounded-lg bg-[var(--primary)]/20 text-[var(--primary)] text-xs font-mono font-semibold">{rule.name || rule.id}</span>
+                : <span className="text-xs text-amber-400">No rule selected</span>
+            ) : (
+              selected.map((id) => (
+                <span key={id} className="px-2.5 py-1 rounded-lg bg-[var(--primary)]/20 text-[var(--primary)] text-xs font-mono font-semibold">{id}</span>
+              ))
+            )}
           </div>
         </div>
 
@@ -2166,7 +2309,7 @@ function ScheduleModal() {
           <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">Schedule Type</p>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { val: "ONE_TIME",  Icon: Clock,         label: "One-Time",  sub: "Execute once" },
+              { val: "ONE_TIME",  Icon: Clock,         label: "One-Time",  sub: "Execute once now" },
               { val: "RECURRING", Icon: ArrowsClockwise, label: "Recurring", sub: "Regular intervals" },
             ].map(({ val, Icon, label, sub }) => {
               const sel = scheduleConfig.type === val;
@@ -2183,40 +2326,52 @@ function ScheduleModal() {
           </div>
         </div>
 
-        {/* Environment */}
-        <div>
-          <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">Target Environment</label>
-          <select
-            value={scheduleConfig.environment}
-            onChange={(e) => dispatch(setScheduleConfig({ environment: e.target.value }))}
-            className="w-full px-3 py-2.5 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-          >
-            <option value="">Select environment...</option>
-            {envOpts.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-        </div>
+        {isOneTime ? (
+          <>
+            {/* Dynamic CDS parameters for the one-time run */}
+            {renderDynamicFields()}
+            {runError && (
+              <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{runError}</p>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Environment */}
+            <div>
+              <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">Target Environment</label>
+              <select
+                value={scheduleConfig.environment}
+                onChange={(e) => dispatch(setScheduleConfig({ environment: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
+              >
+                <option value="">Select environment...</option>
+                {envOpts.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
 
-        {/* Dates */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">From Date</label>
-            <input type="date" value={scheduleConfig.fromDate}
-              onChange={(e) => dispatch(setScheduleConfig({ fromDate: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">To Date</label>
-            <input type="date" value={scheduleConfig.toDate}
-              onChange={(e) => dispatch(setScheduleConfig({ toDate: e.target.value }))}
-              className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-            />
-          </div>
-        </div>
-        {(dateError || scheduleError) && (
-          <p className="text-xs text-red-400 flex items-center gap-1">
-            <Warning size={12} />{dateError ? "End date must be after start date." : scheduleError}
-          </p>
+            {/* Dates */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">From Date</label>
+                <input type="date" value={scheduleConfig.fromDate}
+                  onChange={(e) => dispatch(setScheduleConfig({ fromDate: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">To Date</label>
+                <input type="date" value={scheduleConfig.toDate}
+                  onChange={(e) => dispatch(setScheduleConfig({ toDate: e.target.value }))}
+                  className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
+                />
+              </div>
+            </div>
+            {(dateError || scheduleError) && (
+              <p className="text-xs text-red-400 flex items-center gap-1">
+                <Warning size={12} />{dateError ? "End date must be after start date." : scheduleError}
+              </p>
+            )}
+          </>
         )}
 
         {/* Summary */}
@@ -2226,18 +2381,21 @@ function ScheduleModal() {
             <p className="text-xs font-semibold text-[var(--primary)]">Schedule Summary</p>
           </div>
           <div className="space-y-0.5 text-xs">
-            <p><span className="text-[var(--muted)]">Rules: </span><span className="font-semibold text-[var(--text)]">{selected.length} selected</span></p>
-            <p><span className="text-[var(--muted)]">Type: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.type === "ONE_TIME" ? "One-Time" : "Recurring"}</span></p>
-            {scheduleConfig.environment && <p><span className="text-[var(--muted)]">Env: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.environment}</span></p>}
+            {isOneTime
+              ? <p><span className="text-[var(--muted)]">Rule: </span><span className="font-semibold text-[var(--text)]">{rule?.name || rule?.id || "—"}</span></p>
+              : <p><span className="text-[var(--muted)]">Rules: </span><span className="font-semibold text-[var(--text)]">{selected.length} selected</span></p>}
+            <p><span className="text-[var(--muted)]">Type: </span><span className="font-semibold text-[var(--text)]">{isOneTime ? "One-Time (run now)" : "Recurring"}</span></p>
+            {!isOneTime && scheduleConfig.environment && <p><span className="text-[var(--muted)]">Env: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.environment}</span></p>}
           </div>
         </div>
       </div>
 
       <div className="px-6 pb-5 flex gap-2">
-        <button onClick={handleCreate}
-          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white text-sm font-semibold transition-all shadow-sm"
+        <button onClick={handleCreate} disabled={running || (isOneTime && !rule)}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white text-sm font-semibold transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <CalendarCheck size={15} /> Create Schedule
+          {running ? <CircleNotch size={15} className="animate-spin" /> : <CalendarCheck size={15} />}
+          {isOneTime ? "Create Schedule & Run" : "Create Schedule"}
         </button>
         <button onClick={() => dispatch(closeModal())} className="px-4 py-2.5 rounded-xl border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 hover:text-[var(--text)] transition-colors">Cancel</button>
       </div>
