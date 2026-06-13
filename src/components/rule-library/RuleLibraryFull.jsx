@@ -49,6 +49,7 @@ import { Server } from "lucide-react";
 import { ruleService } from "../../services/ruleService";
 import apiClient from "../../services/apiClient";
 import { generateTestDataAPI, runOneTimeScheduleAPI } from "../../features/rules/rulesBackendAPI";
+import { CaseModal } from "../../pages/caseManagement";
 
 // ─── Visual Config (all hardcoded — no dynamic Tailwind interpolation) ────────
 
@@ -1373,6 +1374,445 @@ function GeneratedTestDataPanel({ markdown, ruleName, onClose, onRegenerate }) {
   );
 }
 
+// ─── SAP OData record detail helpers ─────────────────────────────────────────
+
+function humanizeSapFieldName(key) {
+  return key
+    .replace(/__/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .trim();
+}
+
+function formatSapODataValue(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return Number.isFinite(value) ? value.toLocaleString() : "—";
+  if (typeof value === "object") {
+    if (value.__metadata) return null;
+    if (value.__deferred?.uri) return null;
+    return JSON.stringify(value);
+  }
+
+  const str = String(value);
+  const dateMatch = str.match(/^\/Date\((-?\d+)\)\/$/);
+  if (dateMatch) {
+    const d = new Date(Number(dateMatch[1]));
+    return Number.isNaN(d.getTime()) ? str : d.toLocaleString();
+  }
+  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) {
+    const d = new Date(str);
+    return Number.isNaN(d.getTime()) ? str : d.toLocaleString();
+  }
+  return str;
+}
+
+function getSapRecordEntries(record) {
+  if (!record || typeof record !== "object") return [];
+  return Object.entries(record)
+    .filter(([key]) => !key.startsWith("__") && key !== "Parameters")
+    .map(([key, value]) => {
+      const formatted = formatSapODataValue(value);
+      if (formatted === null) return null;
+      return { key, label: humanizeSapFieldName(key).toUpperCase(), value: formatted };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function extractODataParametersRef(record) {
+  const params = record?.Parameters;
+  if (!params) return null;
+  if (params.__deferred?.uri) return { type: "deferred", uri: params.__deferred.uri };
+  if (Array.isArray(params?.results)) return { type: "inline", data: params.results };
+  if (Array.isArray(params)) return { type: "inline", data: params };
+  if (typeof params === "object") return { type: "inline", data: [params] };
+  return null;
+}
+
+const CDS_QUERY_PARAM_LABELS = {
+  p_budat_from: "Posting Date From",
+  p_budat_to: "Posting Date To",
+  p_company_code: "Company Code",
+  CompanyCode: "Company Code",
+  p_fiscal_year: "Fiscal Year",
+  FiscalYear: "Fiscal Year",
+  p_amount_threshold: "Amount Threshold",
+  InvoiceDocNumber: "Invoice Document Number",
+  LineItem: "Line Item",
+};
+
+function parseODataEntityKeyValue(raw) {
+  if (!raw) return "—";
+  const decoded = decodeURIComponent(String(raw).trim());
+  if (decoded.startsWith("datetime'") && decoded.endsWith("'")) {
+    const iso = decoded.slice(9, -1).replace(/%3A/gi, ":");
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  }
+  if (decoded.startsWith("'") && decoded.endsWith("'")) {
+    return decoded.slice(1, -1);
+  }
+  return decoded;
+}
+
+function parseODataEntityKeyParams(uri) {
+  const match = String(uri || "").match(/Set\(([^)]+)\)/i);
+  if (!match) return [];
+
+  const keyString = decodeURIComponent(match[1]);
+  const pairRegex = /([A-Za-z_][\w]*)\s*=\s*((?:datetime'[^']*'|'[^']*'|[^,]+))/g;
+  const fields = [];
+  let pairMatch;
+
+  while ((pairMatch = pairRegex.exec(keyString)) !== null) {
+    const name = pairMatch[1];
+    const value = parseODataEntityKeyValue(pairMatch[2]);
+    if (!value || value === "—") continue;
+    fields.push({
+      key: name,
+      label: (CDS_QUERY_PARAM_LABELS[name] || humanizeSapFieldName(name)).toUpperCase(),
+      value,
+      mono: /code|year|doc|line|id/i.test(name),
+    });
+  }
+
+  return fields;
+}
+
+function buildODataParameterFields(items) {
+  const rows = Array.isArray(items) ? items : [items];
+  return rows.flatMap((item, index) => (
+    Object.entries(item || {})
+      .filter(([key]) => !key.startsWith("__"))
+      .map(([key, value]) => {
+        const formatted = formatSapODataValue(value);
+        if (formatted === null) return null;
+        return {
+          key: `${index}-${key}`,
+          label: (CDS_QUERY_PARAM_LABELS[key] || humanizeSapFieldName(key)).toUpperCase(),
+          value: formatted,
+          mono: /code|year|doc|line|id/i.test(key),
+        };
+      })
+      .filter(Boolean)
+  ));
+}
+
+function buildCdsQueryParameterFields(record) {
+  const ref = extractODataParametersRef(record);
+  if (!ref) return [];
+  if (ref.type === "inline") return buildODataParameterFields(ref.data);
+  if (ref.type === "deferred" && ref.uri) return parseODataEntityKeyParams(ref.uri);
+  return [];
+}
+
+const SAP_RECORD_PARAMETER_ORDER = [
+  "CompanyCode", "AccountingDocument", "FiscalYear", "LineItem",
+  "OriginalInvoiceDoc", "DuplicateInvoiceDoc", "DocumentNumber", "InvoiceNumber", "InvoiceDocNumber",
+  "DocumentType", "DocumentDate", "PostingDate", "OriginalDocumentDate", "InvoiceCreationDate", "EntryDate",
+  "ReferenceDocument", "ReferenceInvoice", "DocumentStatus", "OriginalStatus", "DuplicateStatus",
+  "Vendor", "VendorCode", "VendorName", "VendorAccountGroup", "Supplier", "SupplierName",
+  "Currency", "DocumentCurrency", "Amount", "AmountInDocCurrency", "AmountInLocalCurrency",
+  "InvoiceAmount", "DocumentAmount", "NetAmount",
+  "AccountType", "DebitCreditIndicator", "GLAccount", "PostingKey", "ClearingDocument",
+  "UserName", "Usnam", "CreatedBy", "ChangedBy",
+  "DuplicateCount", "DuplicateInvoices", "ExceptionReason", "TransactionId",
+];
+
+const MONO_SAP_PARAMETER_KEYS = new Set([
+  "CompanyCode", "AccountingDocument", "FiscalYear", "LineItem",
+  "OriginalInvoiceDoc", "DuplicateInvoiceDoc", "DocumentNumber", "InvoiceNumber", "InvoiceDocNumber",
+  "ReferenceDocument", "ReferenceInvoice", "Vendor", "VendorCode", "GLAccount", "ClearingDocument",
+  "TransactionId", "CreatedBy", "ChangedBy",
+]);
+
+function buildSapRecordParameterFields(record) {
+  if (!record || typeof record !== "object") return [];
+
+  const entries = getSapRecordEntries(record);
+  const byKey = Object.fromEntries(entries.map((entry) => [entry.key, entry]));
+  const ordered = [];
+  const seen = new Set();
+
+  SAP_RECORD_PARAMETER_ORDER.forEach((key) => {
+    if (byKey[key]) {
+      ordered.push({
+        ...byKey[key],
+        mono: MONO_SAP_PARAMETER_KEYS.has(key),
+      });
+      seen.add(key);
+    }
+  });
+
+  entries.forEach((entry) => {
+    if (!seen.has(entry.key)) {
+      ordered.push({
+        ...entry,
+        mono: MONO_SAP_PARAMETER_KEYS.has(entry.key),
+      });
+    }
+  });
+
+  return ordered;
+}
+
+function investigationRiskColor(score) {
+  if (score >= 90) return "text-red-400";
+  if (score >= 75) return "text-orange-400";
+  if (score >= 50) return "text-yellow-400";
+  return "text-emerald-400";
+}
+
+function InvestigationSectionHead({ dot = "bg-blue-500", label, badge }) {
+  return (
+    <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center gap-2.5">
+        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${dot}`} />
+        <h3 className="text-[13px] font-semibold text-[var(--text)]">{label}</h3>
+        {badge && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 font-semibold">
+            {badge}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const INVESTIGATION_GRID_CLS = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 min-w-0";
+
+function resolveInvestigationFieldSpan(field) {
+  if (field.cls) return field.cls;
+  const valueLen = String(field.value || "").length;
+  const label = String(field.label || "");
+  if (valueLen > 56) return "col-span-full";
+  if (valueLen > 30 || /name|text|description|reference|header/i.test(label)) {
+    return "col-span-full sm:col-span-2";
+  }
+  return "";
+}
+
+function InvestigationInfoCell({ label, value, mono = false, cls = "" }) {
+  return (
+    <div className={`p-3 rounded-lg border border-[var(--border)] bg-white/[0.015] min-w-0 overflow-hidden ${cls}`}>
+      <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1">{label}</p>
+      <p className={`text-[13px] font-medium text-[var(--text)] ${mono ? "font-mono text-[11px] break-all" : "break-words"}`}>
+        {value || "—"}
+      </p>
+    </div>
+  );
+}
+
+function InvestigationFieldGrid({ fields }) {
+  if (!fields?.length) return null;
+  return (
+    <div className={INVESTIGATION_GRID_CLS}>
+      {fields.map((field) => (
+        <InvestigationInfoCell
+          key={field.key}
+          label={field.label}
+          value={field.value}
+          mono={field.mono}
+          cls={resolveInvestigationFieldSpan(field)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SapRecordInvestigationModal({ anomaly, ruleName, ruleId, simId, onClose }) {
+  const parameterFields = React.useMemo(
+    () => buildSapRecordParameterFields(anomaly?.raw),
+    [anomaly?.raw]
+  );
+  const cdsQueryParameterFields = React.useMemo(
+    () => buildCdsQueryParameterFields(anomaly?.raw),
+    [anomaly?.raw]
+  );
+
+  if (!anomaly) return null;
+
+  const formatDetectedAt = (value) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "N/A";
+    return d.toLocaleString();
+  };
+
+  const riskLevelStyle = {
+    CRITICAL: "bg-red-500/20 text-red-400 border-red-500/30",
+    HIGH: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+    MEDIUM: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    LOW: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  }[anomaly.riskLevel] || "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-[3px] p-4 overflow-y-auto"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="relative flex flex-col min-h-0 w-full max-w-[820px] bg-[#0b0f1a] border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden"
+        style={{ height: "min(92vh, 920px)", maxHeight: "calc(100vh - 2rem)" }}
+      >
+        <div className="flex-shrink-0 px-6 pt-4 pb-3 border-b border-[var(--border)] min-w-0">
+          <div className="flex items-center gap-3 flex-wrap min-w-0">
+            <h2 className="text-[15px] font-semibold text-[var(--text)] flex-shrink-0">Anomaly Investigation</h2>
+            <span className="text-[12px] font-mono text-[var(--muted)] truncate max-w-[120px]">{anomaly.caseId}</span>
+            <span className={`text-[12px] font-semibold flex-shrink-0 ${investigationRiskColor(anomaly.riskScore)}`}>
+              Risk Score: {anomaly.riskScore}/100
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-auto w-7 h-7 rounded-full border border-[var(--border)] flex items-center justify-center text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/5 transition-colors flex-shrink-0"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <p className="text-[12px] text-[var(--muted)] mt-0.5 truncate" title={`${anomaly.vendor} · ${anomaly.document}${anomaly.duplicateDocument && anomaly.duplicateDocument !== "—" ? ` · Duplicate: ${anomaly.duplicateDocument}` : ""}`}>
+            {anomaly.vendor} · {anomaly.document}
+            {anomaly.duplicateDocument && anomaly.duplicateDocument !== "—"
+              ? ` · Duplicate: ${anomaly.duplicateDocument}`
+              : ""}
+          </p>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain sap-investigation-scroll">
+          <style>{`
+            .sap-investigation-scroll {
+              scrollbar-width: thin;
+              scrollbar-color: rgba(148,163,184,0.35) transparent;
+            }
+            .sap-investigation-scroll::-webkit-scrollbar {
+              width: 6px;
+              height: 6px;
+            }
+            .sap-investigation-scroll::-webkit-scrollbar-thumb {
+              background: rgba(148,163,184,0.35);
+              border-radius: 999px;
+            }
+            .sap-investigation-scroll::-webkit-scrollbar-track {
+              background: transparent;
+            }
+          `}</style>
+          <div className="px-6 py-5 space-y-5 min-w-0">
+            <section className="min-w-0">
+              <InvestigationSectionHead dot="bg-blue-500" label="Anomaly Overview" />
+              <div className={INVESTIGATION_GRID_CLS}>
+                <div className="p-3.5 rounded-xl border border-[var(--border)] bg-white/[0.02] min-w-0">
+                  <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">RISK LEVEL</p>
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-bold border ${riskLevelStyle}`}>
+                    {anomaly.riskLevel}
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl border border-[var(--border)] bg-white/[0.02] min-w-0">
+                  <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">AMOUNT</p>
+                  <p className="text-[13px] font-semibold text-[var(--text)]">
+                    {anomaly.amount.currency} {Number(anomaly.amount.value || 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-3.5 rounded-xl border border-[var(--border)] bg-white/[0.02] min-w-0">
+                  <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">SAP MODULE</p>
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-bold bg-indigo-600/25 text-indigo-300 border border-indigo-500/30">
+                    {anomaly.sapModule}
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl border border-[var(--border)] bg-white/[0.02] min-w-0">
+                  <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">DETECTED AT</p>
+                  <p className="text-[13px] font-medium text-[var(--text)]">{formatDetectedAt(anomaly.detectedAt)}</p>
+                </div>
+              </div>
+            </section>
+
+            <section className="min-w-0">
+              <InvestigationSectionHead dot="bg-blue-500" label="Rule Information" />
+              <InvestigationFieldGrid
+                fields={[
+                  { key: "rule-name", label: "RULE NAME", value: ruleName, cls: "col-span-full sm:col-span-2" },
+                  { key: "rule-id", label: "RULE ID", value: ruleId, mono: true },
+                  { key: "sim-id", label: "SIMULATION ID", value: simId, mono: true },
+                  { key: "detected-at", label: "DETECTION TIME", value: formatDetectedAt(anomaly.detectedAt) },
+                ]}
+              />
+            </section>
+
+            <section className="min-w-0">
+              <InvestigationSectionHead dot="bg-blue-500" label="Transaction Details" />
+              <InvestigationFieldGrid
+                fields={[
+                  { key: "document", label: "DOCUMENT NUMBER", value: anomaly.document, mono: true },
+                  { key: "amount", label: "AMOUNT", value: `${anomaly.amount.currency} ${Number(anomaly.amount.value || 0).toLocaleString()}` },
+                  { key: "posting-date", label: "POSTING DATE", value: formatDetectedAt(anomaly.detectedAt) },
+                  { key: "duplicate-doc", label: "DUPLICATE DOCUMENT", value: anomaly.duplicateDocument, mono: true },
+                  { key: "vendor-name", label: "VENDOR NAME", value: anomaly.vendor, cls: "col-span-full sm:col-span-2" },
+                  { key: "vendor-code", label: "VENDOR CODE", value: anomaly.vendorCode, mono: true },
+                  { key: "transaction-id", label: "TRANSACTION ID", value: anomaly.transactionId, mono: true },
+                  { key: "sap-module", label: "SAP MODULE", value: anomaly.sapModule },
+                ]}
+              />
+            </section>
+
+            {parameterFields.length > 0 && (
+              <section className="min-w-0">
+                <InvestigationSectionHead
+                  dot="bg-violet-500"
+                  label="SAP Record Parameters"
+                  badge={`${parameterFields.length} fields`}
+                />
+                <InvestigationFieldGrid fields={parameterFields} />
+              </section>
+            )}
+
+            {cdsQueryParameterFields.length > 0 && (
+              <section className="min-w-0">
+                <InvestigationSectionHead
+                  dot="bg-violet-500"
+                  label="CDS Query Parameters"
+                  badge={`${cdsQueryParameterFields.length} values`}
+                />
+                <InvestigationFieldGrid fields={cdsQueryParameterFields} />
+              </section>
+            )}
+
+            {anomaly.duplicateDocument && anomaly.duplicateDocument !== "—" && (
+              <section className="min-w-0">
+                <InvestigationSectionHead dot="bg-orange-500" label="Duplicate Detection" badge="Potential Duplicate" />
+                <div className="flex items-start gap-3 p-3.5 rounded-xl border bg-orange-500/10 border-orange-500/20 min-w-0">
+                  <Warning size={14} weight="fill" className="text-orange-400 flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <span className="text-[12px] font-semibold text-[var(--text)]">Duplicate Invoice Detected</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 font-semibold">
+                        {anomaly.riskLevel}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-orange-400 break-words">
+                      Original document {anomaly.document} matches duplicate {anomaly.duplicateDocument}
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+
+        <div className="flex-shrink-0 px-6 py-3 border-t border-[var(--border)] bg-[#0b0f1a]">
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-[#1e2030] border border-[var(--border)] text-[var(--text)] text-[12px] font-semibold hover:bg-white/5 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Anomalies Modal ──────────────────────────────────────────────────────────
 function AnomaliesModal() {
   const dispatch = useAppDispatch();
@@ -1420,8 +1860,12 @@ function AnomaliesModal() {
       riskLevel,
       sapModule: raw.sapModule || raw.sap_module || raw.module || "FI",
       detectedAt: raw.detectedAt || raw.detected_at || raw.created_at || raw.timestamp || new Date().toISOString(),
+      raw: raw.raw || raw.odata_source || null,
     };
   }, []);
+
+  const [selectedId, setSelectedId] = React.useState(null);
+  const [selectedCaseId, setSelectedCaseId] = React.useState(null);
 
   const anomalies = React.useMemo(
     () => (Array.isArray(initialAnomalies) ? initialAnomalies.map(normalizeAnomaly) : []),
@@ -1475,15 +1919,29 @@ function AnomaliesModal() {
   const rows = anomalies;
   const totalScanned = summary.totalRecords ?? count ?? rows.length;
   const skipped = summary.skipped ?? 0;
+  const hasRawRecords = rows.some((r) => r.raw && Object.keys(r.raw).length > 0);
+  const selectedAnomaly = rows.find((r) => r.id === selectedId) || null;
+
+  React.useEffect(() => {
+    setSelectedId(null);
+    setSelectedCaseId(null);
+  }, [initialAnomalies]);
 
   return (
+    <>
     <Modal onClose={() => dispatch(closeModal())} width="max-w-6xl">
       <div className="px-8 pt-6 pb-4 border-b border-white/10 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-lg font-semibold text-[var(--text)]">Simulation Results</h2>
-            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/30">
-              Live Preview
+            <h2 className="text-lg font-semibold text-[var(--text)]">
+              {showCaseId ? "Anomaly Results" : "Simulation Results"}
+            </h2>
+            <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${
+              showCaseId
+                ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+                : "bg-blue-500/15 text-blue-300 border-blue-500/30"
+            }`}>
+              {showCaseId ? "Scheduled Run" : "Live Preview"}
             </span>
             {rows.length > 0 && (
               <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-red-500/20 text-red-400 border border-red-500/30">
@@ -1552,11 +2010,38 @@ function AnomaliesModal() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/8">
-              {rows.map((anom, idx) => (
-                <tr key={anom.id} className="hover:bg-white/[0.025] transition-colors">
+              {rows.map((anom, idx) => {
+                const isSelected = selectedId === anom.id;
+                const canShowDetails = !showCaseId && !!(anom.raw && Object.keys(anom.raw).length > 0);
+                return (
+                <tr
+                  key={anom.id}
+                  onClick={() => {
+                    if (!canShowDetails) return;
+                    setSelectedId(anom.id);
+                  }}
+                  className={`transition-colors ${
+                    canShowDetails ? "cursor-pointer" : ""
+                  } ${
+                    isSelected
+                      ? "bg-blue-500/10 hover:bg-blue-500/12"
+                      : "hover:bg-white/[0.025]"
+                  }`}
+                >
                   <td className="px-3 py-3.5 text-[11px] text-[var(--muted)] font-mono">{idx + 1}</td>
                   {showCaseId && (
-                    <td className="px-3 py-3.5 text-[12px] font-mono text-violet-400">{anom.caseId}</td>
+                    <td className="px-3 py-3.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedCaseId(anom.caseId);
+                        }}
+                        className="text-[12px] font-mono text-violet-400 hover:text-violet-300 hover:underline transition-colors"
+                      >
+                        {anom.caseId}
+                      </button>
+                    </td>
                   )}
                   <td className="px-3 py-3.5 text-[12px] font-mono text-blue-400">{anom.document}</td>
                   <td className="px-3 py-3.5 text-[12px] font-mono text-red-400/90">{anom.duplicateDocument}</td>
@@ -1589,17 +2074,23 @@ function AnomaliesModal() {
                   </td>
                   <td className="px-3 py-3.5 text-[12px] text-[var(--muted)] whitespace-nowrap">{formatDetectedAt(anom.detectedAt)}</td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         )}
+
       </div>
 
       <div className="px-8 py-3 border-t border-white/10 flex items-center justify-between">
         <p className="text-xs text-[var(--muted)]">
           {rows.length > 0
-            ? `Showing ${rows.length} anomaly preview${rows.length === 1 ? "" : " rows"}`
-            : "Preview only"}
+            ? showCaseId
+              ? `Showing ${rows.length} detected anomal${rows.length === 1 ? "y" : "ies"} · click a case ID to open investigation`
+              : hasRawRecords
+                ? `Showing ${rows.length} anomaly preview${rows.length === 1 ? "" : " rows"} · click a row to open investigation`
+                : `Showing ${rows.length} anomaly preview${rows.length === 1 ? "" : " rows"}`
+            : showCaseId ? "No anomalies detected" : "Preview only"}
         </p>
         <button
           onClick={() => dispatch(closeModal())}
@@ -1609,6 +2100,26 @@ function AnomaliesModal() {
         </button>
       </div>
     </Modal>
+
+    {selectedAnomaly && !showCaseId && (
+      <SapRecordInvestigationModal
+        anomaly={selectedAnomaly}
+        ruleName={displayRuleName}
+        ruleId={ruleId}
+        simId={simId}
+        onClose={() => setSelectedId(null)}
+      />
+    )}
+
+    {showCaseId && selectedCaseId && (
+      <CaseModal
+        caseId={selectedCaseId}
+        onClose={() => setSelectedCaseId(null)}
+        onUpdate={() => {}}
+        overlayZ="z-[70]"
+      />
+    )}
+    </>
   );
 }
 
@@ -1672,7 +2183,6 @@ function SimulationModal() {
     }
   }, [sim.step, rule?.id]);
 
-  // Helper to map ABAP types to HTML input type
   const getInputType = (abapType) => {
     if (!abapType) return "text";
     const lower = abapType.toLowerCase();
@@ -1682,7 +2192,6 @@ function SimulationModal() {
     return "text";
   };
 
-  // Render dynamic parameter fields
   const renderDynamicFields = () => {
     if (!dynamicParams?.LIST || dynamicParams.LIST.length === 0) {
       return (

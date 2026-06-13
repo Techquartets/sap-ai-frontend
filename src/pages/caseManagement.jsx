@@ -353,7 +353,7 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
 }
 
 // ─── Case Investigation Modal ──────────────────────────────────────────────────
-export function CaseModal({ caseId, onClose, onUpdate }) {
+export function CaseModal({ caseId, onClose, onUpdate, overlayZ = "z-50" }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -451,7 +451,7 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
   return (
     <>
       {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[3px]"
+      <div className={`fixed inset-0 ${overlayZ} flex items-center justify-center bg-black/70 backdrop-blur-[3px]`}
         onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
         <div className="relative flex flex-col bg-[#0b0f1a] border border-[var(--border)] rounded-2xl shadow-2xl"
           style={{ width: "min(820px, 96vw)", height: "min(92vh, 920px)" }}>
