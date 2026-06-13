@@ -29,6 +29,7 @@ import {
   UserPlus, ArrowRight, CheckFat, DownloadSimple,
 } from "@phosphor-icons/react";
 import { loadRiskConfigs, resolveRiskLevelByAmount, RISK_CONFIG_STORAGE_KEY } from "../features/cases/riskConfig";
+import apiClient from "../services/apiClient";
 
 // ─── Style maps ───────────────────────────────────────────────────────────────
 const RISK_COLOR = s => s >= 90 ? "text-red-400" : s >= 75 ? "text-orange-400" : s >= 60 ? "text-yellow-400" : "text-green-400";
@@ -158,7 +159,7 @@ function buildCaseReportHtml(caseData, detail) {
   .meta { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 16px; background: #f4f6f8; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 20px; }
   .meta span { font-size: 11px; }
   .meta strong { display: block; font-size: 10px; text-transform: uppercase; color: #666; letter-spacing: 0.04em; }
-  .section { margin-bottom: 18px; page-break-inside: avoid; }
+  .section { margin-bottom: 18px; page-break-inside: avoid; break-inside: avoid; }
   .section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: #333; border-bottom: 2px solid #2563eb; padding-bottom: 4px; margin: 0 0 10px; }
   .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
@@ -256,18 +257,23 @@ function buildCaseReportHtml(caseData, detail) {
   return html;
 }
 
-function downloadCaseReport(caseData, detail) {
+async function downloadCaseReport(caseData, detail) {
   const html = buildCaseReportHtml(caseData, detail);
   if (!html) return;
 
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const filename = `Case-Report-${caseData.id || "unknown"}.pdf`;
+  const response = await apiClient.post(
+    "/sap/generate-case-pdf/",
+    { html, filename },
+    { responseType: "blob", timeout: 120000 },
+  );
+
+  const blob = new Blob([response.data], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `Case-Report-${caseData.id || "unknown"}.html`;
-  document.body.appendChild(link);
+  link.download = filename;
   link.click();
-  link.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -444,8 +450,16 @@ export function CaseModal({ caseId, onClose, onUpdate, overlayZ = "z-50" }) {
   const isClosed = data?.status === "Closed";
   const isUnassigned = !data?.assignee || data.assignee === "Unassigned";
 
-  const handleDownloadReport = useCallback(() => {
-    if (data?.detail) downloadCaseReport(data, data.detail);
+  const handleDownloadReport = useCallback(async () => {
+    if (!data?.detail) return;
+    try {
+      await downloadCaseReport(data, data.detail);
+    } catch (err) {
+      const message = err?.response?.data instanceof Blob
+        ? "Failed to generate working paper PDF."
+        : (err?.response?.data?.message || err?.message || "Failed to generate working paper PDF.");
+      setToast(message);
+    }
   }, [data]);
 
   return (
@@ -961,7 +975,7 @@ export function CaseModal({ caseId, onClose, onUpdate, overlayZ = "z-50" }) {
                 <div className="flex items-center gap-2">
                   <button onClick={handleDownloadReport}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[var(--border)] text-[var(--text)] text-[12px] font-semibold hover:bg-white/5 transition-colors">
-                    <DownloadSimple size={13} /> Download Case Report
+                    <DownloadSimple size={13} /> Generate Working Paper
                   </button>
                   <button onClick={onClose} className="px-4 py-2 rounded-lg bg-[#1e2030] border border-[var(--border)] text-[var(--text)] text-[12px] font-semibold hover:bg-white/5 transition-colors">
                     Close
