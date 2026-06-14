@@ -49,6 +49,15 @@ const QUICK_REPLIES = {
     "What kind of SAP anomaly detection rules can you create?",
 };
 
+const companionArtifactsFromRule = (rule = {}) => ({
+  cdsBaseinfo: rule.cdsBaseinfo || "",
+  cdsXml: rule.cdsXml || "",
+  cdsSrvd: rule.cdsSrvd || "",
+  cdsSrvb: rule.cdsSrvb || "",
+  srvdName: rule.srvdName || "",
+  srvbName: rule.srvbName || "",
+});
+
 const INITIAL_MSG = {
   id: "init",
   role: "ai",
@@ -262,6 +271,7 @@ export default function AIRuleArchitect() {
         module:    rule.module,
         riskScore: riskScore,
         cds:       rule.cdsCode || "",
+        ...companionArtifactsFromRule(rule),
       };
 
       setMessages([INITIAL_MSG, editMsg]);
@@ -273,6 +283,7 @@ export default function AIRuleArchitect() {
         timeDiff,
         riskScore,
         cds:        rule.cdsCode || "",
+        ...companionArtifactsFromRule(rule),
       });
 
       setInput(`I want to modify the "${rule.name}" rule — `);
@@ -300,6 +311,7 @@ export default function AIRuleArchitect() {
         module:    state.module || rule.module || "FI",
         riskScore: riskScore,
         cds:       rule.cdsCode || "",
+        ...companionArtifactsFromRule(rule),
       };
 
       setMessages([INITIAL_MSG, editMsg]);
@@ -310,6 +322,7 @@ export default function AIRuleArchitect() {
         timeDiff,
         riskScore,
         cds:        rule.cdsCode || "",
+        ...companionArtifactsFromRule(rule),
       });
 
       setInput(`I want to modify the "${state.ruleName}" rule — `);
@@ -385,6 +398,10 @@ export default function AIRuleArchitect() {
           cds: resp.cdsCode,
           cdsBaseinfo: resp.cdsBaseinfo,
           cdsXml: resp.cdsXml,
+          cdsSrvd: resp.cdsSrvd,
+          cdsSrvb: resp.cdsSrvb,
+          srvdName: resp.srvdName,
+          srvbName: resp.srvbName,
           dynamicParameters: resp.dynamicParameters || {},
         });
 
@@ -399,6 +416,10 @@ export default function AIRuleArchitect() {
           cds:        resp.cdsCode,
           cdsBaseinfo:   resp.cdsBaseinfo,
           cdsXml:        resp.cdsXml,
+          cdsSrvd:       resp.cdsSrvd,
+          cdsSrvb:       resp.cdsSrvb,
+          srvdName:      resp.srvdName,
+          srvbName:      resp.srvbName,
           dynamicParameters: resp.dynamicParameters || {},
           msgId:      added.id,
         });
@@ -432,6 +453,10 @@ export default function AIRuleArchitect() {
       cds: message.cds || message.cdsCode || "",
       cdsBaseinfo: message.cdsBaseinfo || "",
       cdsXml: message.cdsXml || "",
+      cdsSrvd: message.cdsSrvd || "",
+      cdsSrvb: message.cdsSrvb || "",
+      srvdName: message.srvdName || "",
+      srvbName: message.srvbName || "",
       dynamicParameters: normalizeDynamicParameters(
         message.dynamicParameters || message.parameters || message.PARAMETERS || {}
       ),
@@ -498,6 +523,10 @@ export default function AIRuleArchitect() {
       cdsCode: currentRule.cds || currentRule.cdsCode || "",
       cdsBaseinfo: currentRule.cdsBaseinfo || "",
       cdsXml: currentRule.cdsXml || "",
+      cdsSrvd: currentRule.cdsSrvd || "",
+      cdsSrvb: currentRule.cdsSrvb || "",
+      srvdName: currentRule.srvdName || "",
+      srvbName: currentRule.srvbName || "",
       dynamicParameters: resolvedDynamicParameters,
       parameters: resolvedDynamicParameters,
 
@@ -581,6 +610,7 @@ export default function AIRuleArchitect() {
         riskScore: message.riskScore ?? 0,
         cds: message.cds || message.cdsCode || "",
         dynamicParameters: message.dynamicParameters || {},
+        ...companionArtifactsFromRule(message),
       };
     })();
 
@@ -600,6 +630,12 @@ export default function AIRuleArchitect() {
           },
           risk:    currentRule.riskScore >= 75 ? "HIGH" : currentRule.riskScore >= 50 ? "MEDIUM" : "LOW",
           cdsCode: currentRule.cds || "",
+          cdsBaseinfo: currentRule.cdsBaseinfo || "",
+          cdsXml: currentRule.cdsXml || "",
+          cdsSrvd: currentRule.cdsSrvd || "",
+          cdsSrvb: currentRule.cdsSrvb || "",
+          srvdName: currentRule.srvdName || "",
+          srvbName: currentRule.srvbName || "",
           dynamicParameters: currentRule.dynamicParameters || {},
         },
       },

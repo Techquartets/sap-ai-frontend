@@ -257,6 +257,10 @@ const payload = {
   cdsCode: rule.cdsCode || "",
   cdsBaseinfo: rule.cdsBaseinfo || "",
   cdsXml: rule.cdsXml || "",
+  cdsSrvd: rule.cdsSrvd || "",
+  cdsSrvb: rule.cdsSrvb || "",
+  srvdName: rule.srvdName || "",
+  srvbName: rule.srvbName || "",
   viewName,
   module: rule.module || "FI",
   environment,
@@ -266,7 +270,9 @@ const payload = {
 
   const response = await apiClient.post(
     `${API_BASE}/${ruleId}/deploy/`,
-    payload
+    payload,
+    // 5 sequential GitHub API pushes can take 60-120s depending on network
+    { timeout: 180000 }
   );
 
   return {
