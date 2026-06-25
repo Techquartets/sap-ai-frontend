@@ -8,146 +8,497 @@
  */
 
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+
+// ─────────────────────────────────────────────
+// API IMPORTS
+// ─────────────────────────────────────────────
+
 import {
   fetchSecurityStatsAPI,
   fetchActiveSessionsAPI,
   fetchFailedLoginsAPI,
   fetchUsersAPI,
   createUserAPI,
-  updateUserAPI,
   toggleUserLockAPI,
   deleteUserAPI,
+  toggleFailedLoginBlockAPI,
+  updateUserAPI,
 } from "./securityAPI";
 
+// export roles to use in dropdowns/forms
 export { AVAILABLE_ROLES } from "./securityAPI";
 
-// ─── Thunks ───────────────────────────────────────────────────────────────────
-export const fetchSecurityStats  = createAsyncThunk("security/fetchStats",    async (_, {rejectWithValue}) => { try { return await fetchSecurityStatsAPI();  } catch(e) { return rejectWithValue(e.message); } });
-export const fetchActiveSessions = createAsyncThunk("security/fetchSessions", async (_, {rejectWithValue}) => { try { return await fetchActiveSessionsAPI(); } catch(e) { return rejectWithValue(e.message); } });
-export const fetchFailedLogins   = createAsyncThunk("security/fetchFailed",   async (_, {rejectWithValue}) => { try { return await fetchFailedLoginsAPI();   } catch(e) { return rejectWithValue(e.message); } });
-export const fetchUsers          = createAsyncThunk("security/fetchUsers",    async (_, {rejectWithValue}) => { try { return await fetchUsersAPI();           } catch(e) { return rejectWithValue(e.message); } });
-export const createUser          = createAsyncThunk("security/createUser",    async (payload, {rejectWithValue}) => { try { return await createUserAPI(payload);       } catch(e) { return rejectWithValue(e.message); } });
-export const updateUser          = createAsyncThunk("security/updateUser",    async ({id,payload},{rejectWithValue}) => { try { return await updateUserAPI(id,payload); } catch(e) { return rejectWithValue(e.message); } });
-export const toggleUserLock      = createAsyncThunk("security/toggleLock",    async ({id},{rejectWithValue}) => { try { return await toggleUserLockAPI(id);            } catch(e) { return rejectWithValue(e.message); } });
-export const deleteUser          = createAsyncThunk("security/deleteUser",    async (id,{rejectWithValue}) => { try { return await deleteUserAPI(id);                  } catch(e) { return rejectWithValue(e.message); } });
 
-// ─── Slice ────────────────────────────────────────────────────────────────────
-const securitySlice = createSlice({
-  name: "security",
-  initialState: {
-    stats:               { activeSessions:0, failedLogins1h:0, wafBlocked:0, dlpAlerts:0 },
-    statsLoading:        false,
-    sessions:            [],
-    sessionsLoading:     false,
-    failedLogins:        [],
-    failedLoginsLoading: false,
-    users:               [],
-    usersLoading:        false,
-    usersError:          null,
-    actionLoading:       false,
-    actionError:         null,
-    modalType:           null,
-    activeUser:          null,
-    search:              "",
-    roleFilter:          "All",
-    statusFilter:        "All",
+// ─────────────────────────────────────────────
+// REUSABLE THUNK CREATOR
+// avoids repeating try/catch everywhere
+// ─────────────────────────────────────────────
+
+const thunk = (type, api) =>
+  createAsyncThunk(type, async (payload, { rejectWithValue }) => {
+    try {
+      return await api(payload);
+    } catch (e) {
+      return rejectWithValue(e.message);
+    }
+  });
+
+
+// ─────────────────────────────────────────────
+// ASYNC THUNKS
+// ─────────────────────────────────────────────
+
+// dashboard statistics
+export const fetchSecurityStats = thunk(
+  "security/fetchStats",
+  fetchSecurityStatsAPI
+);
+
+// active session users
+export const fetchActiveSessions = thunk(
+  "security/fetchSessions",
+  fetchActiveSessionsAPI
+);
+
+// failed login attempts
+export const fetchFailedLogins = thunk(
+  "security/fetchFailed",
+  fetchFailedLoginsAPI
+);
+
+// all users
+export const fetchUsers = thunk(
+  "security/fetchUsers",
+  fetchUsersAPI
+);
+
+// create new user
+export const createUser = thunk(
+  "security/createUser",
+  createUserAPI
+);
+
+// lock/unlock user
+export const toggleUserLock = thunk(
+  "security/toggleLock",
+  ({ id }) => toggleUserLockAPI(id)
+);
+
+// delete user
+export const deleteUser = thunk(
+  "security/deleteUser",
+  deleteUserAPI
+);
+
+// block/unblock failed login record
+export const toggleFailedLoginBlock = thunk(
+  "security/toggleFailedLoginBlock",
+  toggleFailedLoginBlockAPI
+);
+
+export const updateUser = createAsyncThunk(
+  "security/updateUser",
+
+  async ({ id, payload }, thunkAPI) => {
+
+    try {
+
+      return await updateUserAPI(
+        id,
+        payload
+      );
+
+    } catch (err) {
+
+      return thunkAPI.rejectWithValue(
+        err.message
+      );
+    }
+  }
+);
+
+
+// ─────────────────────────────────────────────
+// INITIAL STATE
+// ─────────────────────────────────────────────
+
+const initialState = {
+
+  // top dashboard cards
+  stats: {
+    activeSessions: 0,
+    failedLogins1h: 0,
+    wafBlocked: 0,
+    dlpAlerts: 0,
   },
+
+  // table data
+  sessions: [],
+  failedLogins: [],
+  users: [],
+
+  // loading states
+  statsLoading: false,
+  sessionsLoading: false,
+  failedLoginsLoading: false,
+  usersLoading: false,
+
+  // error handling
+  usersError: null,
+  actionLoading: false,
+  actionError: null,
+
+  // modal state
+  modalType: null,
+  activeUser: null,
+
+  // filters/search
+  search: "",
+  roleFilter: "All",
+  statusFilter: "All",
+};
+
+
+// ─────────────────────────────────────────────
+// SLICE
+// ─────────────────────────────────────────────
+
+const securitySlice = createSlice({
+
+  name: "security",
+
+  initialState,
 
   reducers: {
-    openModal:       (s,a) => { s.modalType=a.payload.type; s.activeUser=a.payload.user||null; s.actionError=null; },
-    closeModal:      (s)   => { s.modalType=null; s.activeUser=null; s.actionError=null; },
-    setSearch:       (s,a) => { s.search      =a.payload; },
-    setRoleFilter:   (s,a) => { s.roleFilter  =a.payload; },
-    setStatusFilter: (s,a) => { s.statusFilter=a.payload; },
+
+    // open modal
+    openModal: (state, action) => {
+
+      state.modalType = action.payload.type;
+
+      state.activeUser =
+        action.payload.user || null;
+
+      state.actionError = null;
+    },
+
+    // close modal
+    closeModal: (state) => {
+
+      state.modalType = null;
+
+      state.activeUser = null;
+
+      state.actionError = null;
+    },
+
+    // search filter
+    setSearch: (state, action) => {
+
+      state.search = action.payload;
+    },
+
+    // role filter
+    setRoleFilter: (state, action) => {
+
+      state.roleFilter = action.payload;
+    },
+
+    // status filter
+    setStatusFilter: (state, action) => {
+
+      state.statusFilter = action.payload;
+    },
   },
 
-  extraReducers: (b) => {
-    // fetchSecurityStats
-    b.addCase(fetchSecurityStats.pending,   s     => { s.statsLoading=true; });
-    b.addCase(fetchSecurityStats.fulfilled, (s,a) => { s.statsLoading=false; s.stats=a.payload; });
-    b.addCase(fetchSecurityStats.rejected,  s     => { s.statsLoading=false; });
+  // ─────────────────────────────────────────────
+  // API RESPONSE HANDLERS
+  // ─────────────────────────────────────────────
 
-    // fetchActiveSessions
-    b.addCase(fetchActiveSessions.pending,   s     => { s.sessionsLoading=true; });
-    b.addCase(fetchActiveSessions.fulfilled, (s,a) => { s.sessionsLoading=false; s.sessions=a.payload; });
-    b.addCase(fetchActiveSessions.rejected,  s     => { s.sessionsLoading=false; });
+  extraReducers: (builder) => {
 
-    // fetchFailedLogins
-    b.addCase(fetchFailedLogins.pending,   s     => { s.failedLoginsLoading=true; });
-    b.addCase(fetchFailedLogins.fulfilled, (s,a) => { s.failedLoginsLoading=false; s.failedLogins=a.payload; });
-    b.addCase(fetchFailedLogins.rejected,  s     => { s.failedLoginsLoading=false; });
+    builder
+  
+      // ─────────────────────────────
+      // FETCH SECURITY STATS
+      // ─────────────────────────────
+      .addCase(
+        fetchSecurityStats.fulfilled,
+        (state, action) => {
+  
+          state.stats = action.payload;
+        }
+      )
+  
+      // ─────────────────────────────
+      // FETCH ACTIVE SESSIONS
+      // ─────────────────────────────
+      .addCase(
+        fetchActiveSessions.fulfilled,
+        (state, action) => {
+  
+          state.sessions = action.payload;
+        }
+      )
+  
+      // ─────────────────────────────
+      // FETCH FAILED LOGINS
+      // ─────────────────────────────
+      .addCase(
+        fetchFailedLogins.fulfilled,
+        (state, action) => {
+  
+          state.failedLogins = action.payload;
+        }
+      )
+  
+      // ─────────────────────────────
+      // FETCH USERS
+      // ─────────────────────────────
+      .addCase(
+        fetchUsers.fulfilled,
+        (state, action) => {
+  
+          state.users = action.payload;
+        }
+      )
+  
+      // ─────────────────────────────
+      // CREATE USER
+      // ─────────────────────────────
+      .addCase(
+        createUser.fulfilled,
+        (state, action) => {
+  
+          // add to users table
+          state.users.unshift(action.payload);
+  
+          // add to sessions table
+          state.sessions.unshift(action.payload);
+  
+          // update stats
+          state.stats.activeSessions++;
+  
+          // close modal
+          state.modalType = null;
+  
+          state.actionLoading = false;
+        }
+      )
+  
+      // ─────────────────────────────
+      // UPDATE USER
+      // ─────────────────────────────
+      .addCase(
+        updateUser.pending,
+        (state) => {
+  
+          state.actionLoading = true;
+  
+          state.actionError = null;
+        }
+      )
+  
+      .addCase(
+        updateUser.fulfilled,
+        (state, action) => {
+  
+          state.actionLoading = false;
+  
+          // update sessions table
+          state.sessions = state.sessions.map((u) =>
+            u.id === action.payload.id
+              ? action.payload
+              : u
+          );
+  
+          // update users table
+          state.users = state.users.map((u) =>
+            u.id === action.payload.id
+              ? action.payload
+              : u
+          );
+  
+          // close modal
+          state.modalType = null;
+  
+          state.activeUser = null;
+        }
+      )
+  
+      .addCase(
+        updateUser.rejected,
+        (state, action) => {
+  
+          state.actionLoading = false;
+  
+          state.actionError = action.payload;
+        }
+      )
+  
+      // ─────────────────────────────
+      // LOCK / UNLOCK USER
+      // ─────────────────────────────
+      .addCase(
+        toggleUserLock.fulfilled,
+        (state, action) => {
+  
+          const { id, newStatus } = action.payload;
+  
+          // update users + sessions
+          [state.users, state.sessions].forEach((arr) => {
+  
+            const item = arr.find(
+              (x) => x.id === id
+            );
+  
+            if (item) {
+              item.status = newStatus;
+              item.is_locked = newStatus === "Locked";
+            }
+          });
+  
+          // recalculate active sessions
+          state.stats.activeSessions =
+            state.sessions.filter(
+              (x) => x.status === "Active"
+            ).length;
+        }
+      )
+  
+      // ─────────────────────────────
+      // DELETE USER
+      // ─────────────────────────────
+      .addCase(
+        deleteUser.fulfilled,
+        (state, action) => {
+  
+          const id = action.payload;
+  
+          // remove from users
+          state.users =
+            state.users.filter(
+              (u) => u.id !== id
+            );
+  
+          // remove from sessions
+          state.sessions =
+            state.sessions.filter(
+              (u) => u.id !== id
+            );
+  
+          // update stats
+          state.stats.activeSessions =
+            state.sessions.filter(
+              (x) => x.status === "Active"
+            ).length;
+  
+          // close modal
+          state.modalType = null;
+  
+          state.activeUser = null;
+        }
+      )
+  
+      // ─────────────────────────────
+      // BLOCK / UNBLOCK FAILED LOGIN
+      // ─────────────────────────────
+      .addCase(
+        toggleFailedLoginBlock.fulfilled,
+        (state, action) => {
+  
+          const updated = action.payload;
+  
+          const index =
+            state.failedLogins.findIndex(
+              (f) => f.id === updated.id
+            );
+  
+          if (index !== -1)
+            state.failedLogins[index] = updated;
 
-    // fetchUsers
-    b.addCase(fetchUsers.pending,   s     => { s.usersLoading=true; s.usersError=null; });
-    b.addCase(fetchUsers.fulfilled, (s,a) => { s.usersLoading=false; s.users=a.payload; });
-    b.addCase(fetchUsers.rejected,  (s,a) => { s.usersLoading=false; s.usersError=a.payload; });
+          if (updated.blocked) {
+            const lockUser = (user) =>
+              user.email === updated.email
+                ? {
+                    ...user,
+                    status: "Locked",
+                    is_locked: true,
+                  }
+                : user;
 
-    // createUser
-    b.addCase(createUser.pending,   s     => { s.actionLoading=true; s.actionError=null; });
-    b.addCase(createUser.fulfilled, (s,a) => {
-      s.actionLoading=false;
-      s.users.unshift({ ...a.payload, name: a.payload.name || a.payload.email });
-      s.sessions.unshift(a.payload);
-      s.modalType=null; s.activeUser=null;
-      s.stats.activeSessions = s.sessions.filter(x=>x.status==="Active").length;
-    });
-    b.addCase(createUser.rejected,  (s,a) => { s.actionLoading=false; s.actionError=a.payload; });
+            state.sessions = state.sessions.map(lockUser);
+            state.users = state.users.map(lockUser);
 
-    // updateUser — sync both arrays
-    b.addCase(updateUser.pending,   s     => { s.actionLoading=true; s.actionError=null; });
-    b.addCase(updateUser.fulfilled, (s,a) => {
-      s.actionLoading=false;
-      const { id, ...changes } = a.payload;
-      const ui = s.users.findIndex(u=>u.id===id);
-      if (ui!==-1) s.users[ui] = { ...s.users[ui], ...changes };
-      const si = s.sessions.findIndex(x=>x.id===id);
-      if (si!==-1) s.sessions[si] = { ...s.sessions[si], ...changes };
-      s.modalType=null; s.activeUser=null;
-    });
-    b.addCase(updateUser.rejected,  (s,a) => { s.actionLoading=false; s.actionError=a.payload; });
-
-    // ── toggleUserLock: API now returns { id, newStatus } ────────────────────
-    b.addCase(toggleUserLock.pending,   s     => { s.actionLoading=true; s.actionError=null; });
-    b.addCase(toggleUserLock.fulfilled, (s,a) => {
-      s.actionLoading=false;
-      const { id, newStatus } = a.payload;
-      // Update users[]
-      const ui = s.users.findIndex(u=>u.id===id);
-      if (ui!==-1) s.users[ui].status = newStatus;
-      // Update sessions[]
-      const si = s.sessions.findIndex(x=>x.id===id);
-      if (si!==-1) s.sessions[si].status = newStatus;
-      // Update stats count
-      s.stats.activeSessions = s.sessions.filter(x=>x.status==="Active").length;
-      s.modalType=null; s.activeUser=null;
-    });
-    b.addCase(toggleUserLock.rejected,  (s,a) => { s.actionLoading=false; s.actionError=a.payload; });
-
-    // ── deleteUser: remove from both arrays ──────────────────────────────────
-    b.addCase(deleteUser.pending,   s     => { s.actionLoading=true; s.actionError=null; });
-    b.addCase(deleteUser.fulfilled, (s,a) => {
-      s.actionLoading=false;
-      const id = a.payload;
-      s.users    = s.users.filter(u=>u.id!==id);
-      s.sessions = s.sessions.filter(x=>x.id!==id);
-      s.stats.activeSessions = s.sessions.filter(x=>x.status==="Active").length;
-      s.modalType=null; s.activeUser=null;
-    });
-    b.addCase(deleteUser.rejected,  (s,a) => { s.actionLoading=false; s.actionError=a.payload; });
+            state.stats.activeSessions = state.sessions.filter(
+              (x) => x.status === "Active"
+            ).length;
+          }
+        }
+      );
   },
 });
 
-export const { openModal, closeModal, setSearch, setRoleFilter, setStatusFilter } = securitySlice.actions;
 
-export const selectFilteredUsers = (s) => {
-  const { users, search, roleFilter, statusFilter } = s.security;
-  const q = search.toLowerCase();
-  return users.filter(u => {
-    const ms = !q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
-    const rs = roleFilter==="All"   || u.role===roleFilter;
-    const ss = statusFilter==="All" || u.status===statusFilter;
-    return ms && rs && ss;
+// ─────────────────────────────────────────────
+// ACTION EXPORTS
+// ─────────────────────────────────────────────
+
+export const {
+  openModal,
+  closeModal,
+  setSearch,
+  setRoleFilter,
+  setStatusFilter,
+} = securitySlice.actions;
+
+
+// ─────────────────────────────────────────────
+// FILTERED USER SELECTOR
+// used for search + filters
+// ─────────────────────────────────────────────
+
+export const selectFilteredUsers = (state) => {
+
+  const {
+    users,
+    search,
+    roleFilter,
+    statusFilter,
+  } = state.security;
+
+  const query = search.toLowerCase();
+
+  return users.filter((user) => {
+
+    // search by email
+    const searchMatch =
+      !query ||
+      user.email
+        ?.toLowerCase()
+        .includes(query);
+
+    // role filter
+    const roleMatch =
+      roleFilter === "All" ||
+      user.role === roleFilter;
+
+    // status filter
+    const statusMatch =
+      statusFilter === "All" ||
+      user.status === statusFilter;
+
+    return (
+      searchMatch &&
+      roleMatch &&
+      statusMatch
+    );
   });
 };
+
+
+// ─────────────────────────────────────────────
+// REDUCER EXPORT
+// ─────────────────────────────────────────────
 
 export default securitySlice.reducer;

@@ -1,54 +1,89 @@
-import apiClient from './apiClient';
+import apiClient from "./apiClient";
 
-// Mock auth service - replace with real backend when ready
 export const authService = {
+
+  // LOGIN
   login: async (email, password) => {
-    // Simulate API call
-    await new Promise((res) => setTimeout(res, 800));
 
-    let role = 'User';
-    let name = 'User';
+    try {
 
-    if (email === 'admin@corp.com') {
-      role = 'Administrator';
-      name = 'Admin';
-    } else if (email === 'analyst@corp.com') {
-      role = 'Analyst';
-      name = 'Analyst';
+      const response = await apiClient.post(
+        "/sap/security/login/",
+        {
+          email,
+          password,
+        }
+      );
+
+      const data = response.data;
+
+      // save token/user
+      localStorage.setItem(
+
+        "authToken",
+
+        data.token || "authenticated"
+      );
+
+      localStorage.setItem(
+
+        "user",
+
+        JSON.stringify(data.user)
+      );
+
+      return {
+
+        success: true,
+
+        user: data.user,
+      };
+
+    } catch (error) {
+
+      return {
+
+        success: false,
+
+        error:
+          error.response?.data?.message ||
+          "Invalid credentials",
+      };
     }
+  },
 
-    const userData = {
-      email,
-      name,
-      role,
-    };
+  // LOGOUT
+  logout: async () => {
 
-    // Store auth token
-    const token = btoa(JSON.stringify(userData));
-    localStorage.setItem('authToken', token);
+    localStorage.removeItem("authToken");
+
+    localStorage.removeItem("user");
 
     return {
       success: true,
-      data: userData,
     };
   },
 
-  logout: async () => {
-    localStorage.removeItem('authToken');
-    return { success: true };
-  },
-
+  // CURRENT USER
   getCurrentUser: async () => {
-    const token = localStorage.getItem('authToken');
-    if (!token) {
-      return { success: false, data: null };
+
+    const user = localStorage.getItem("user");
+
+    if (!user) {
+
+      return {
+
+        success: false,
+
+        data: null,
+      };
     }
 
-    try {
-      const userData = JSON.parse(atob(token));
-      return { success: true, data: userData };
-    } catch (e) {
-      return { success: false, data: null };
-    }
+    return {
+
+      success: true,
+
+      data: JSON.parse(user),
+    };
   },
 };
