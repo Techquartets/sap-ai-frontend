@@ -188,6 +188,35 @@ export const generateTestDataAPI = async (cdsSource, ruleContext = "") => {
   };
 };
 
+export const createRuleScheduleAPI = async (ruleIds, config) => {
+  const payload = {
+    ruleIds,
+    type: config.type,
+    environment: config.environment,
+    fromDate: config.fromDate || null,
+    toDate: config.toDate || null,
+    frequency: config.frequency || null,
+    dayOfWeek: config.dayOfWeek || null,
+    dayOfMonth: config.dayOfMonth ? Number(config.dayOfMonth) : null,
+    endDate: config.endDate || null,
+  };
+
+  try {
+    const response = await apiClient.post(`${API_BASE}/schedules/`, payload);
+    if (response.data?.status === "error") {
+      return { success: false, message: response.data.message || "Failed to create schedule" };
+    }
+    return {
+      success: true,
+      data: response.data?.data,
+      message: response.data?.message || "Schedule created successfully",
+    };
+  } catch (e) {
+    const message = e.response?.data?.message || e.message || "Failed to create schedule";
+    return { success: false, message };
+  }
+};
+
 // ─────────────────────────────────────────────────────────────
 // DEPLOY TO ENV
 // ─────────────────────────────────────────────────────────────

@@ -31,7 +31,7 @@ import {
   setDeployTarget,
   setScheduleConfig, setScheduleError,
   bulkDeploy, bulkActivate, bulkDeactivate,
-  runSimulation, deployRuleToEnv,
+  runSimulation, deployRuleToEnv, createRuleSchedule,
   selectFilteredRules, selectStats,
 } from "../../features/rules/rulesSlice";
 import {
@@ -264,6 +264,16 @@ function ActionBar() {
   const handleSchedule = () => {
     if (!has) return;
     if (!allActive) { dispatch(openModal({ type: "SCHEDULE_GATE" })); return; }
+    dispatch(setScheduleConfig({
+      type: "ONE_TIME",
+      environment: "",
+      fromDate: "",
+      toDate: "",
+      frequency: "",
+      dayOfWeek: "",
+      dayOfMonth: "",
+      endDate: "",
+    }));
     dispatch(openModal({ type: "SCHEDULE" }));
   };
 
@@ -924,8 +934,51 @@ function DeploySuccessModal() {
   );
 }
 
+function ScheduleResultModal() {
+  const dispatch = useAppDispatch();
+  const { modalType, scheduleResultSuccess, scheduleResultMsg } = useAppSelector((s) => s.rules);
+  if (modalType !== "SCHEDULE_RESULT") return null;
+
+  const isSuccess = scheduleResultSuccess;
+
+  return (
+    <Modal onClose={() => dispatch(closeModal())} width="max-w-sm">
+      <div className="px-6 pt-7 pb-6 text-center space-y-5">
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto border ${
+          isSuccess
+            ? "bg-emerald-500/15 border-emerald-500/30"
+            : "bg-red-500/15 border-red-500/30"
+        }`}>
+          {isSuccess
+            ? <CheckCircle size={28} weight="fill" className="text-emerald-400" />
+            : <Warning size={28} weight="fill" className="text-red-400" />
+          }
+        </div>
+        <div>
+          <p className="text-[15px] font-semibold text-[var(--text)]">
+            {isSuccess ? "Schedule created successfully" : "Failed to create schedule"}
+          </p>
+          <p className={`mt-2 text-[12px] leading-relaxed ${isSuccess ? "text-[var(--muted)]" : "text-red-400"}`}>
+            {scheduleResultMsg}
+          </p>
+        </div>
+        <button
+          onClick={() => dispatch(closeModal())}
+          className={`w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-all ${
+            isSuccess
+              ? "bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500"
+              : "bg-gradient-to-b from-red-500 to-red-600 hover:from-red-400 hover:to-red-500"
+          }`}
+        >
+          {isSuccess ? "Done" : "Close"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Anomalies Modal ──────────────────────────────────────────────────────────
-function AnomaliesModal() {
+export function AnomaliesModal() {
   const dispatch = useAppDispatch();
   const { modalData } = useAppSelector((s) => s.rules);
   const [investigationCaseId, setInvestigationCaseId] = React.useState(null);
@@ -1078,7 +1131,11 @@ function AnomaliesModal() {
               Vendor Manipulation
             </span>
           </div>
-          <p className="text-xs text-[var(--muted)] mt-2">{rows.length || Number(count) || 0} cases detected in simulation</p>
+          <p className="text-xs text-[var(--muted)] mt-2">
+            {modalData?.source === "schedule"
+              ? `${rows.length || Number(count) || 0} cases detected from scheduled rule run`
+              : `${rows.length || Number(count) || 0} cases detected in simulation`}
+          </p>
         </div>
         <button onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
           <X size={18} />
@@ -1704,19 +1761,76 @@ function ConfirmModal() {
 }
 
 // ─── Schedule Modal ────────────────────────────────────────────────────────────
+const FREQUENCY_OPTIONS = [
+  { value: "DAILY", label: "Daily" },
+  { value: "WEEKLY", label: "Weekly" },
+  { value: "MONTHLY", label: "Monthly" },
+];
+
+const DAY_OF_WEEK_OPTIONS = [
+  { value: "MON", label: "Monday" },
+  { value: "TUE", label: "Tuesday" },
+  { value: "WED", label: "Wednesday" },
+  { value: "THU", label: "Thursday" },
+  { value: "FRI", label: "Friday" },
+  { value: "SAT", label: "Saturday" },
+  { value: "SUN", label: "Sunday" },
+];
+
+const frequencyLabel = (freq) =>
+  FREQUENCY_OPTIONS.find((o) => o.value === freq)?.label || freq;
+
 function ScheduleModal() {
   const dispatch = useAppDispatch();
-  const { modalType, selected, scheduleConfig, scheduleError, deployEnvs } = useAppSelector((s) => s.rules);
+  const { modalType, selected, scheduleConfig, scheduleError, scheduleLoading, deployEnvs } = useAppSelector((s) => s.rules);
   if (modalType !== "SCHEDULE") return null;
 
-  const dateError = scheduleConfig.fromDate && scheduleConfig.toDate &&
+  const isRecurring = scheduleConfig.type === "RECURRING";
+  const isOneTime = scheduleConfig.type === "ONE_TIME";
+
+  const dateError = isOneTime && scheduleConfig.fromDate && scheduleConfig.toDate &&
     new Date(scheduleConfig.toDate) < new Date(scheduleConfig.fromDate);
 
+  const endDateError = isRecurring && scheduleConfig.endDate &&
+    new Date(scheduleConfig.endDate) < new Date(new Date().toISOString().slice(0, 10));
+
+  const dayOfMonthError = isRecurring && scheduleConfig.frequency === "MONTHLY" && scheduleConfig.dayOfMonth &&
+    (Number(scheduleConfig.dayOfMonth) < 1 || Number(scheduleConfig.dayOfMonth) > 31);
+
   const handleCreate = () => {
-    if (dateError) { dispatch(setScheduleError("End date must be after start date.")); return; }
-    if (!scheduleConfig.environment) { dispatch(setScheduleError("Please select a target environment.")); return; }
-    console.info("Schedule created:", { ids: selected, config: scheduleConfig });
-    dispatch(closeModal());
+    if (!scheduleConfig.environment) {
+      dispatch(setScheduleError("Please select a target environment."));
+      return;
+    }
+    if (isOneTime) {
+      if (dateError) { dispatch(setScheduleError("End date must be after start date.")); return; }
+      if (!scheduleConfig.fromDate) { dispatch(setScheduleError("Please select a from date.")); return; }
+    }
+    if (isRecurring) {
+      if (!scheduleConfig.frequency) {
+        dispatch(setScheduleError("Please select a frequency."));
+        return;
+      }
+      if (scheduleConfig.frequency === "WEEKLY" && !scheduleConfig.dayOfWeek) {
+        dispatch(setScheduleError("Please select a day of week."));
+        return;
+      }
+      if (scheduleConfig.frequency === "MONTHLY") {
+        if (!scheduleConfig.dayOfMonth) {
+          dispatch(setScheduleError("Please enter a day of month (1–31)."));
+          return;
+        }
+        if (dayOfMonthError) {
+          dispatch(setScheduleError("Day of month must be between 1 and 31."));
+          return;
+        }
+      }
+      if (endDateError) {
+        dispatch(setScheduleError("End date must be today or in the future."));
+        return;
+      }
+    }
+    dispatch(createRuleSchedule({ ruleIds: selected, config: scheduleConfig }));
   };
 
   const envOpts = deployEnvs.length ? deployEnvs : [
@@ -1724,6 +1838,9 @@ function ScheduleModal() {
     { id: "QAS", name: "QA / Testing (QAS)" },
     { id: "PROD", name: "Production (PRD)" },
   ];
+
+  const inputCls = "w-full px-3 py-2.5 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]";
+  const labelCls = "block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5";
 
   return (
     <Modal onClose={() => dispatch(closeModal())} width="max-w-lg">
@@ -1767,41 +1884,110 @@ function ScheduleModal() {
 
         {/* Environment */}
         <div>
-          <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">Target Environment</label>
+          <label className={labelCls}>Target Environment</label>
           <select
             value={scheduleConfig.environment}
             onChange={(e) => dispatch(setScheduleConfig({ environment: e.target.value }))}
-            className="w-full px-3 py-2.5 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
+            className={inputCls}
           >
             <option value="">Select environment...</option>
             {envOpts.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </div>
 
-        {/* Dates */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">From Date</label>
-            <input type="date" value={scheduleConfig.fromDate}
-              onChange={(e) => dispatch(setScheduleConfig({ fromDate: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-            />
+        {/* One-time dates */}
+        {isOneTime && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>From Date</label>
+              <input type="date" value={scheduleConfig.fromDate}
+                onChange={(e) => dispatch(setScheduleConfig({ fromDate: e.target.value }))}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>To Date</label>
+              <input type="date" value={scheduleConfig.toDate}
+                onChange={(e) => dispatch(setScheduleConfig({ toDate: e.target.value }))}
+                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">To Date</label>
-            <input type="date" value={scheduleConfig.toDate}
-              onChange={(e) => dispatch(setScheduleConfig({ toDate: e.target.value }))}
-              className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-            />
-          </div>
-        </div>
-        {(dateError || scheduleError) && (
-          <p className="text-xs text-red-400 flex items-center gap-1">
-            <Warning size={12} />{dateError ? "End date must be after start date." : scheduleError}
-          </p>
         )}
 
-        {/* Summary */}
+        {/* Recurring fields */}
+        {isRecurring && (
+          <>
+            <div>
+              <label className={labelCls}>Frequency</label>
+              <select
+                value={scheduleConfig.frequency}
+                onChange={(e) => dispatch(setScheduleConfig({
+                  frequency: e.target.value,
+                  dayOfWeek: "",
+                  dayOfMonth: "",
+                }))}
+                className={inputCls}
+              >
+                <option value="">Select frequency...</option>
+                {FREQUENCY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {scheduleConfig.frequency === "WEEKLY" && (
+              <div>
+                <label className={labelCls}>Day of Week</label>
+                <select
+                  value={scheduleConfig.dayOfWeek}
+                  onChange={(e) => dispatch(setScheduleConfig({ dayOfWeek: e.target.value }))}
+                  className={inputCls}
+                >
+                  <option value="">Select day...</option>
+                  {DAY_OF_WEEK_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {scheduleConfig.frequency === "MONTHLY" && (
+              <div>
+                <label className={labelCls}>Day of Month</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  placeholder="1–31"
+                  value={scheduleConfig.dayOfMonth}
+                  onChange={(e) => dispatch(setScheduleConfig({ dayOfMonth: e.target.value }))}
+                  className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dayOfMonthError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
+                />
+              </div>
+            )}
+
+            <div>
+              <label className={labelCls}>End Date <span className="normal-case font-normal">(Optional)</span></label>
+              <input
+                type="date"
+                value={scheduleConfig.endDate}
+                onChange={(e) => dispatch(setScheduleConfig({ endDate: e.target.value }))}
+                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${endDateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
+              />
+            </div>
+          </>
+        )}
+
+        {(dateError || endDateError || dayOfMonthError || scheduleError) && (
+          <p className="text-xs text-red-400 flex items-center gap-1">
+            <Warning size={12} />
+            {dateError ? "End date must be after start date."
+              : endDateError ? "End date must be today or in the future."
+              : dayOfMonthError ? "Day of month must be between 1 and 31."
+              : scheduleError}
+          </p>
+        )}
         <div className="p-3.5 rounded-xl bg-[var(--primary)]/10 border border-[var(--primary)]/20">
           <div className="flex items-center gap-1.5 mb-2">
             <CalendarCheck size={13} className="text-[var(--primary)]" />
@@ -1809,19 +1995,39 @@ function ScheduleModal() {
           </div>
           <div className="space-y-0.5 text-xs">
             <p><span className="text-[var(--muted)]">Rules: </span><span className="font-semibold text-[var(--text)]">{selected.length} selected</span></p>
-            <p><span className="text-[var(--muted)]">Type: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.type === "ONE_TIME" ? "One-Time" : "Recurring"}</span></p>
-            {scheduleConfig.environment && <p><span className="text-[var(--muted)]">Env: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.environment}</span></p>}
+            <p><span className="text-[var(--muted)]">Type: </span><span className="font-semibold text-[var(--text)]">{isOneTime ? "One-Time" : "Recurring"}</span></p>
+            {isRecurring && scheduleConfig.frequency && (
+              <p>
+                <span className="text-[var(--muted)]">Frequency: </span>
+                <span className="font-semibold text-[var(--text)]">
+                  {frequencyLabel(scheduleConfig.frequency)}
+                  {scheduleConfig.frequency === "WEEKLY" && scheduleConfig.dayOfWeek && (
+                    <> — {DAY_OF_WEEK_OPTIONS.find((d) => d.value === scheduleConfig.dayOfWeek)?.label}</>
+                  )}
+                  {scheduleConfig.frequency === "MONTHLY" && scheduleConfig.dayOfMonth && (
+                    <> — day {scheduleConfig.dayOfMonth}</>
+                  )}
+                </span>
+              </p>
+            )}
+            {scheduleConfig.environment && (
+              <p><span className="text-[var(--muted)]">Env: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.environment}</span></p>
+            )}
+            {isRecurring && scheduleConfig.endDate && (
+              <p><span className="text-[var(--muted)]">End Date: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.endDate}</span></p>
+            )}
           </div>
         </div>
       </div>
 
       <div className="px-6 pb-5 flex gap-2">
-        <button onClick={handleCreate}
-          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white text-sm font-semibold transition-all shadow-sm"
+        <button onClick={handleCreate} disabled={scheduleLoading}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white text-sm font-semibold transition-all shadow-sm disabled:opacity-50"
         >
-          <CalendarCheck size={15} /> Create Schedule
+          {scheduleLoading ? <CircleNotch size={15} className="animate-spin" /> : <CalendarCheck size={15} />}
+          Create Schedule
         </button>
-        <button onClick={() => dispatch(closeModal())} className="px-4 py-2.5 rounded-xl border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 hover:text-[var(--text)] transition-colors">Cancel</button>
+        <button onClick={() => dispatch(closeModal())} disabled={scheduleLoading} className="px-4 py-2.5 rounded-xl border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 hover:text-[var(--text)] transition-colors disabled:opacity-50">Cancel</button>
       </div>
     </Modal>
   );
@@ -1865,6 +2071,7 @@ export default function RuleLibraryFull({ onProcessRule, isProcessingRule = fals
   const dispatch      = useAppDispatch();
   const loading       = useAppSelector((s) => s.rules.loading);
   const error         = useAppSelector((s) => s.rules.error);
+  const list          = useAppSelector((s) => s.rules.list);
   const totalCount    = useAppSelector((s) => s.rules.list.length);
   const filteredRules = useAppSelector(selectFilteredRules);
   const modalType     = useAppSelector((s) => s.rules.modalType);
@@ -1906,6 +2113,7 @@ export default function RuleLibraryFull({ onProcessRule, isProcessingRule = fals
       {modalType === "VIEW"                                                              && <ViewRuleModal />}
       {modalType === "DEPLOY_TO_ENV"                                                     && <DeployToEnvModal />}
       {modalType === "DEPLOY_SUCCESS"                                                    && <DeploySuccessModal />}
+      {modalType === "SCHEDULE_RESULT"                                                   && <ScheduleResultModal />}
       {modalType === "ANOMALIES"                                                         && <AnomaliesModal />}
       {simStep > 0                                                                       && <SimulationModal />}
       {["CONFIRM_DEPLOY","CONFIRM_ACTIVATE","CONFIRM_DEACTIVATE"].includes(modalType)    && <ConfirmModal />}

@@ -12,7 +12,7 @@ import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import {
   fetchRulesAPI, fetchEnvironmentsAPI,
   deployRulesAPI, activateRulesAPI, deactivateRulesAPI,
-  runSimulationAPI, deployRuleToEnvAPI,
+  runSimulationAPI, deployRuleToEnvAPI, createRuleScheduleAPI,
 } from "./rulesBackendAPI";
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
@@ -52,6 +52,19 @@ export const deployRuleToEnv = createAsyncThunk("rules/deployRuleToEnv", async (
   catch (e) { return rejectWithValue(e.message); }
 });
 
+export const createRuleSchedule = createAsyncThunk(
+  "rules/createSchedule",
+  async ({ ruleIds, config }, { rejectWithValue }) => {
+    try {
+      const r = await createRuleScheduleAPI(ruleIds, config);
+      if (!r.success) return rejectWithValue(r.message || "Failed to create schedule");
+      return { data: r.data, message: r.message };
+    } catch (e) {
+      return rejectWithValue(e.response?.data?.message || e.message);
+    }
+  }
+);
+
 // ─── Simulation State Machine ─────────────────────────────────────────────────
 const initSim = {
   step: 0, mode: null, selectedEnv: null,
@@ -71,8 +84,20 @@ const rulesSlice = createSlice({
     bulkLoading: false, bulkError: null,
     deployTarget: null, deployLoading: false, deployError: null,
     deploySuccessMsg: "",
-    scheduleConfig: { type: "ONE_TIME", environment: "", fromDate: "", toDate: "" },
+    scheduleConfig: {
+      type: "ONE_TIME",
+      environment: "",
+      fromDate: "",
+      toDate: "",
+      frequency: "",
+      dayOfWeek: "",
+      dayOfMonth: "",
+      endDate: "",
+    },
     scheduleError: "",
+    scheduleLoading: false,
+    scheduleResultSuccess: false,
+    scheduleResultMsg: "",
     simulation: { ...initSim },
   },
 
@@ -119,6 +144,8 @@ const rulesSlice = createSlice({
       s.bulkError = null;
       s.deployError = null;
       s.deploySuccessMsg = "";
+      s.scheduleResultSuccess = false;
+      s.scheduleResultMsg = "";
     },
 
     // ── Simulation Control ────────────────────────────────────────────────────
@@ -218,6 +245,31 @@ const rulesSlice = createSlice({
       s.deployTarget = null;
     });
     b.addCase(deployRuleToEnv.rejected, (s, a) => { s.deployLoading = false; s.deployError = a.payload; });
+
+    // ── Schedule ──────────────────────────────────────────────────────────────
+    b.addCase(createRuleSchedule.pending, (s) => { s.scheduleLoading = true; s.scheduleError = ""; });
+    b.addCase(createRuleSchedule.fulfilled, (s, a) => {
+      s.scheduleLoading = false;
+      s.scheduleResultSuccess = true;
+      s.scheduleResultMsg = a.payload?.message || "Schedule created successfully";
+      s.modalType = "SCHEDULE_RESULT";
+      s.scheduleConfig = {
+        type: "ONE_TIME",
+        environment: "",
+        fromDate: "",
+        toDate: "",
+        frequency: "",
+        dayOfWeek: "",
+        dayOfMonth: "",
+        endDate: "",
+      };
+    });
+    b.addCase(createRuleSchedule.rejected, (s, a) => {
+      s.scheduleLoading = false;
+      s.scheduleResultSuccess = false;
+      s.scheduleResultMsg = a.payload || "Failed to create schedule";
+      s.modalType = "SCHEDULE_RESULT";
+    });
   },
 });
 
