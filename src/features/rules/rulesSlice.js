@@ -93,6 +93,7 @@ const rulesSlice = createSlice({
       dayOfWeek: "",
       dayOfMonth: "",
       endDate: "",
+      parameterValues: {},
     },
     scheduleError: "",
     scheduleLoading: false,
@@ -239,7 +240,7 @@ const rulesSlice = createSlice({
       const rule = s.list.find(r => r.id === ruleId);
       if (rule) { rule.status = "DEPLOYED"; rule.lifecycle = "DEPLOYED"; rule.deployedEnv = environment; }
       if (s.activeRule?.id === ruleId) { s.activeRule = { ...rule }; }
-      const envLabel = { DEV: "DEV environment", QAS: "QA environment", PROD: "PRODUCTION environment" };
+      const envLabel = { DEV: "DEV environment", QA: "QA environment", QAS: "QA environment", PROD: "PRODUCTION environment" };
       s.deploySuccessMsg = `${s.activeRule?.name || ""} has been deployed to ${envLabel[environment] || environment}.\nStatus: DEPLOYED\nThe active rule has been archived to the selected environment.`;
       s.modalType   = "DEPLOY_SUCCESS";
       s.deployTarget = null;
@@ -262,6 +263,7 @@ const rulesSlice = createSlice({
         dayOfWeek: "",
         dayOfMonth: "",
         endDate: "",
+        parameterValues: {},
       };
     });
     b.addCase(createRuleSchedule.rejected, (s, a) => {

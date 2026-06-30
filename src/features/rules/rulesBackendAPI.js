@@ -41,7 +41,7 @@ export const DEPLOY_ENVIRONMENTS = [
     name: "Development",
   },
   {
-    id: "QAS",
+    id: "QA",
     name: "QA",
   },
   {
@@ -201,6 +201,10 @@ export const createRuleScheduleAPI = async (ruleIds, config) => {
     endDate: config.endDate || null,
   };
 
+  if (config.parameterValues && Object.keys(config.parameterValues).length > 0) {
+    payload.parameterValues = config.parameterValues;
+  }
+
   try {
     const response = await apiClient.post(`${API_BASE}/schedules/`, payload);
     if (response.data?.status === "error") {
@@ -215,6 +219,21 @@ export const createRuleScheduleAPI = async (ruleIds, config) => {
     const message = e.response?.data?.message || e.message || "Failed to create schedule";
     return { success: false, message };
   }
+};
+
+export const fetchScheduleParameterPreviewAPI = async (ruleIds, environment) => {
+  const params = new URLSearchParams({
+    ruleIds: ruleIds.join(","),
+    environment,
+  });
+  const response = await apiClient.get(
+    `${API_BASE}/schedules/parameter-preview/?${params.toString()}`
+  );
+  return {
+    success: response.data?.status === "success",
+    data: response.data?.data || {},
+    message: response.data?.message,
+  };
 };
 
 // ─────────────────────────────────────────────────────────────

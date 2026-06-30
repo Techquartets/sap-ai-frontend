@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { useAppSelector } from "../app/hooks";
 
 import Sidebar from "../components/layout/Sidebar";
 import Topbar from "../components/layout/Topbar";
@@ -166,7 +167,7 @@ function StatsCards() {
 /* ACTIVE SESSIONS TABLE */
 /* ───────────────────────────────────────────── */
 
-function ActiveSessionsTable() {
+function ActiveSessionsTable({ isAdmin }) {
 
   const dispatch = useDispatch();
 
@@ -205,7 +206,7 @@ function ActiveSessionsTable() {
               "IP ADDRESS",
               "LOGIN TIME",
               "STATUS",
-              "ACTIONS",
+              ...(isAdmin ? ["ACTIONS"] : []),
             ].map((h) => (
               <th
                 key={h}
@@ -256,61 +257,63 @@ function ActiveSessionsTable() {
 
               </td>
 
-              <td className="px-5 py-4">
+              {isAdmin && (
+                <td className="px-5 py-4">
 
-                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
 
-                  {/* EDIT */}
-                  <button
-                    onClick={() =>
-                      dispatch(
-                        openModal({
-                          type: "EDIT",
-                          user: sess,
-                        })
-                      )
-                    }
-                    className="text-gray-400 hover:text-white"
-                  >
-                    <PencilSimple size={16} />
-                  </button>
+                    <button
+                      onClick={() =>
+                        dispatch(
+                          openModal({
+                            type: "EDIT",
+                            user: sess,
+                          })
+                        )
+                      }
+                      className="text-gray-400 hover:text-white"
+                      title="Edit user"
+                    >
+                      <PencilSimple size={16} />
+                    </button>
 
-                  {/* LOCK */}
-                  <button
-                    onClick={() =>
-                      dispatch(
-                        toggleUserLock({
-                          id: sess.id,
-                        })
-                      )
-                    }
-                    className="text-yellow-400"
-                  >
-                    {sess.status === "Active" ? (
-                      <LockSimple size={16} />
-                    ) : (
-                      <LockSimpleOpen size={16} />
-                    )}
-                  </button>
+                    <button
+                      onClick={() =>
+                        dispatch(
+                          toggleUserLock({
+                            id: sess.id,
+                          })
+                        )
+                      }
+                      className="text-yellow-400 hover:text-yellow-300"
+                      title={sess.status === "Active" ? "Lock user" : "Unlock user"}
+                    >
+                      {sess.status === "Active" ? (
+                        <LockSimple size={16} />
+                      ) : (
+                        <LockSimpleOpen size={16} />
+                      )}
+                    </button>
 
-                  {/* DELETE */}
-                  <button
-                    onClick={() =>
-                      dispatch(
-                        openModal({
-                          type: "DELETE",
-                          user: sess,
-                        })
-                      )
-                    }
-                    className="text-red-400"
-                  >
-                    <Trash size={16} />
-                  </button>
+                    <button
+                      onClick={() =>
+                        dispatch(
+                          openModal({
+                            type: "DELETE",
+                            user: sess,
+                          })
+                        )
+                      }
+                      className="text-red-400 hover:text-red-300"
+                      title="Delete user"
+                    >
+                      <Trash size={16} />
+                    </button>
 
-                </div>
+                  </div>
 
-              </td>
+                </td>
+              )}
 
             </tr>
 
@@ -328,7 +331,7 @@ function ActiveSessionsTable() {
 /* FAILED LOGIN TABLE */
 /* ───────────────────────────────────────────── */
 
-function FailedLoginsTable() {
+function FailedLoginsTable({ isAdmin }) {
 
   const dispatch = useDispatch();
 
@@ -392,20 +395,32 @@ function FailedLoginsTable() {
 
               <td className="px-5 py-4">
 
-                <button
-                  onClick={() =>
-                    dispatch(
-                      toggleFailedLoginBlock(f.id)
-                    )
-                  }
-                  className={`px-2 py-1 rounded text-xs ${
-                    f.blocked
-                      ? "bg-red-500/20 text-red-400"
-                      : "bg-gray-500/20 text-gray-300"
-                  }`}
-                >
-                  {f.blocked ? "Yes" : "No"}
-                </button>
+                {isAdmin ? (
+                  <button
+                    onClick={() =>
+                      dispatch(
+                        toggleFailedLoginBlock(f.id)
+                      )
+                    }
+                    className={`px-2 py-1 rounded text-xs ${
+                      f.blocked
+                        ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                        : "bg-gray-500/20 text-gray-300 hover:bg-gray-500/30"
+                    }`}
+                  >
+                    {f.blocked ? "Yes" : "No"}
+                  </button>
+                ) : (
+                  <span
+                    className={`px-2 py-1 rounded text-xs ${
+                      f.blocked
+                        ? "bg-red-500/20 text-red-400"
+                        : "bg-gray-500/20 text-gray-300"
+                    }`}
+                  >
+                    {f.blocked ? "Yes" : "No"}
+                  </span>
+                )}
 
               </td>
 
@@ -727,6 +742,8 @@ function DeleteUserModal() {
 export default function Security() {
 
   const dispatch = useDispatch();
+  const user = useAppSelector((s) => s.auth.user);
+  const isAdmin = user?.role === "Admin";
 
   const { modalType } = useSelector(
     (s) => s.security
@@ -772,22 +789,24 @@ export default function Security() {
 
               </div>
 
-              <button
-                onClick={() =>
-                  dispatch(
-                    openModal({
-                      type: "CREATE",
-                    })
-                  )
-                }
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold"
-              >
+              {isAdmin && (
+                <button
+                  onClick={() =>
+                    dispatch(
+                      openModal({
+                        type: "CREATE",
+                      })
+                    )
+                  }
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                >
 
-                <UserPlus size={16} />
+                  <UserPlus size={16} />
 
-                Create New User
+                  Create New User
 
-              </button>
+                </button>
+              )}
 
             </div>
 
@@ -795,10 +814,10 @@ export default function Security() {
             <StatsCards />
 
             {/* ACTIVE SESSIONS */}
-            <ActiveSessionsTable />
+            <ActiveSessionsTable isAdmin={isAdmin} />
 
             {/* FAILED LOGINS */}
-            <FailedLoginsTable />
+            <FailedLoginsTable isAdmin={isAdmin} />
 
           </div>
 
@@ -807,15 +826,15 @@ export default function Security() {
       </div>
 
       {/* MODALS */}
-      {modalType === "CREATE" && (
+      {isAdmin && modalType === "CREATE" && (
         <CreateUserModal />
       )}
 
-      {modalType === "EDIT" && (
+      {isAdmin && modalType === "EDIT" && (
         <EditUserModal />
       )}
 
-      {modalType === "DELETE" && (
+      {isAdmin && modalType === "DELETE" && (
         <DeleteUserModal />
       )}
 

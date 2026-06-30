@@ -42,7 +42,7 @@ import {
   UploadSimple,
 } from "@phosphor-icons/react";
 import { Server } from "lucide-react";
-import { CaseModal } from "../../pages/caseManagement";
+import DetectedCasesModal from "../detected-cases/DetectedCasesModal";
 // ✅ NEW: Import backend services if not passed as props
 import { ruleService } from "../../services/ruleService";
 import apiClient from "../../services/apiClient";
@@ -250,11 +250,13 @@ function FiltersBar({ count, total }) {
 function ActionBar() {
   const dispatch      = useAppDispatch();
   const navigate      = useNavigate();
+  const user          = useAppSelector((s) => s.auth.user);
   const { selected, bulkLoading, list } = useAppSelector((s) => s.rules);
   const has           = selected.length > 0;
   const selectedRules = list.filter((r) => selected.includes(r.id));
   const allHaveSim    = selectedRules.every((r) => Array.isArray(r.simulationHistory) && r.simulationHistory.length > 0);
   const allActive     = selectedRules.every((r) => r.status === "ACTIVE");
+  const canSchedule   = ["Admin", "Analyst"].includes(user?.role);
 
   const handleActivate = () => {
     if (!has) return;
@@ -273,6 +275,7 @@ function ActionBar() {
       dayOfWeek: "",
       dayOfMonth: "",
       endDate: "",
+      parameterValues: {},
     }));
     dispatch(openModal({ type: "SCHEDULE" }));
   };
@@ -318,7 +321,8 @@ function ActionBar() {
     Icon: CalendarBlank,
     cls: "bg-gradient-to-b from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white shadow-sm shadow-purple-900/40 rounded-none",
     onClick: handleSchedule,
-    disabled: !has || bulkLoading,
+    disabled: !has || bulkLoading || !canSchedule,
+    title: !canSchedule ? "Your role cannot create schedules" : undefined,
   },
 ];
 
@@ -328,11 +332,12 @@ function ActionBar() {
         {has && <span className="text-[var(--primary)] font-semibold">{selected.length} selected</span>}
       </p>
       <div className="flex items-center gap-2">
-        {buttons.map(({ label, Icon, cls, onClick, disabled }) => (
+        {buttons.map(({ label, Icon, cls, onClick, disabled, title }) => (
           <button
             key={label}
             onClick={onClick}
             disabled={disabled}
+            title={title}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${cls}`}
           >
             <Icon size={13} weight="fill" />
@@ -981,273 +986,16 @@ function ScheduleResultModal() {
 export function AnomaliesModal() {
   const dispatch = useAppDispatch();
   const { modalData } = useAppSelector((s) => s.rules);
-  const [investigationCaseId, setInvestigationCaseId] = React.useState(null);
-//   const [anomalies] = React.useState(
-//   Array.isArray(modalData?.anomalies)
-//     ? modalData.anomalies.map(normalizeAnomaly)
-//     : []
-// );
-  // const [loading, setLoading] = React.useState(true);
-  const loading = false;
-  const error = null;
-  // const [error, setError] = React.useState(null);
 
   if (!modalData) return null;
 
-  const { ruleId, simId, count } = modalData;
-
-  const normalizeAnomaly = React.useCallback((raw, index) => {
-    const amountRaw = raw.amount?.value ?? raw.amount_value ?? raw.amount ?? raw.total_amount ?? 0;
-    const amountValue = Number(amountRaw) || 0;
-    const currency = raw.amount?.currency || raw.currency || raw.currency_code || "USD";
-    const riskScore = Number(raw.riskScore ?? raw.risk_score ?? raw.score ?? 0);
-
-    return {
-      id: raw.id || raw.caseId || raw.case_id || `${raw.transactionId || raw.transaction_id || "ANOM"}-${index}`,
-      caseId: raw.caseId || raw.case_id || raw.case || "N/A",
-      transactionId: raw.transactionId || raw.transaction_id || raw.txn_id || "N/A",
-      document: raw.document || raw.document_no || raw.documentNumber || "N/A",
-      vendor: raw.vendor || raw.vendor_name || "Unknown Vendor",
-      vendorCode: raw.vendorCode || raw.vendor_code || raw.vendor_id || "—",
-      amount: {
-        currency,
-        value: amountValue,
-      },
-      riskScore,
-      sapModule: raw.sapModule || raw.sap_module || raw.module || "FI",
-      detectedAt: raw.detectedAt || raw.detected_at || raw.created_at || raw.timestamp || new Date().toISOString(),
-    };
-  }, []);
-  const anomalies = React.useMemo(() => {
-  return Array.isArray(modalData?.anomalies)
-    ? modalData.anomalies.map(normalizeAnomaly)
-    : [];
-}, [modalData?.anomalies, normalizeAnomaly]);
-
-  // Fetch anomalies from backend when modal opens
-  // React.useEffect(() => {
-  //   let mounted = true;
-
-  //   const fetchAnomalies = async () => {
-  //     try {
-  //       setLoading(true);
-  //       setError(null);
-        
-  //       const params = new URLSearchParams();
-  //       if (ruleId && String(ruleId).trim()) params.append("rule_id", String(ruleId).trim());
-  //       if (simId && String(simId).trim()) params.append("sim_id", String(simId).trim());
-  //       params.append("limit", "100");
-        
-  //       const url = `/sap/anomalies/detected/?${params.toString()}`;
-  //       const response = await apiClient.get(url);
-  //       const data = response?.data || {};
-  //       const sourceList = Array.isArray(data.anomalies)
-  //         ? data.anomalies
-  //         : Array.isArray(data.data)
-  //           ? data.data
-  //           : Array.isArray(data.results)
-  //             ? data.results
-  //             : [];
-        
-  //       if (data.status && data.status !== "success" && sourceList.length === 0) {
-  //         throw new Error(data.message || "Failed to fetch anomalies");
-  //       }
-
-  //       if (mounted) {
-  //         setAnomalies(sourceList.map(normalizeAnomaly));
-  //       }
-  //     } catch (err) {
-  //       if (mounted) {
-  //         setError(err?.response?.data?.message || err.message || "Failed to fetch anomalies");
-  //       }
-  //     } finally {
-  //       if (mounted) setLoading(false);
-  //     }
-  //   };
-    
-  //   fetchAnomalies();
-  //   return () => {
-  //     mounted = false;
-  //   };
-  // }, [ruleId, simId, normalizeAnomaly]);
-
-  const getRiskColor = (score) => {
-    if (score >= 90) return "bg-red-500";
-    if (score >= 75) return "bg-orange-500";
-    if (score >= 50) return "bg-yellow-500";
-    return "bg-green-500";
-  };
-
-  const getRiskBgColor = (score) => {
-    if (score >= 90) return "bg-red-500/10";
-    if (score >= 75) return "bg-orange-500/10";
-    if (score >= 50) return "bg-yellow-500/10";
-    return "bg-green-500/10";
-  };
-
-  const getRiskTextColor = (score) => {
-    if (score >= 90) return "text-red-400";
-    if (score >= 75) return "text-orange-400";
-    if (score >= 50) return "text-yellow-400";
-    return "text-green-400";
-  };
-
-  const getModuleBadgeStyle = (module) => {
-    const styles = {
-      FI: "bg-indigo-600/25 text-indigo-300 border border-indigo-500/30",
-      MM: "bg-violet-600/25 text-violet-300 border border-violet-500/30",
-      SD: "bg-cyan-600/25 text-cyan-300 border border-cyan-500/30",
-      HR: "bg-rose-600/25 text-rose-300 border border-rose-500/30",
-      CO: "bg-amber-600/25 text-amber-300 border border-amber-500/30",
-      PP: "bg-emerald-600/25 text-emerald-300 border border-emerald-500/30",
-      QM: "bg-yellow-600/25 text-yellow-300 border border-yellow-500/30",
-      PM: "bg-slate-600/40 text-slate-300 border border-slate-500/30",
-    };
-    return styles[module] || "bg-slate-600/40 text-slate-300 border border-slate-500/30";
-  };
-
-  const formatDetectedAt = (value) => {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "N/A";
-    return d.toLocaleString();
-  };
-
-  const openCaseInvestigation = (caseId) => {
-    if (!caseId || caseId === "N/A") return;
-    setInvestigationCaseId(caseId);
-  };
-
-  const rows = anomalies;
-  const visibleRows = rows.slice(0, 10);
-
   return (
-    <>
-    <Modal onClose={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} width="max-w-6xl">
-      <div className="px-8 pt-6 pb-4 border-b border-white/10 flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-[var(--text)]">Detected Fraud Cases</h2>
-            <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-red-500/20 text-red-400 border border-red-500/30">
-              Vendor Manipulation
-            </span>
-          </div>
-          <p className="text-xs text-[var(--muted)] mt-2">
-            {modalData?.source === "schedule"
-              ? `${rows.length || Number(count) || 0} cases detected from scheduled rule run`
-              : `${rows.length || Number(count) || 0} cases detected in simulation`}
-          </p>
-        </div>
-        <button onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
-          <X size={18} />
-        </button>
-      </div>
-
-      <div className="px-8 py-4 overflow-x-auto">
-        {loading && (
-          <div className="flex items-center justify-center gap-3 py-12">
-            <CircleNotch size={20} className="animate-spin text-blue-400" />
-            <span className="text-sm text-[var(--muted)]">Fetching anomalies from SAP...</span>
-          </div>
-        )}
-
-        {!loading && rows.length === 0 && !error && (
-          <div className="text-center py-12">
-            <p className="text-[var(--muted)] text-sm">No anomalies detected for this rule and simulation.</p>
-          </div>
-        )}
-
-        {!loading && rows.length === 0 && error && (
-          <div className="text-center py-12">
-            <p className="text-sm font-semibold text-red-400">Error Loading Anomalies</p>
-            <p className="text-xs text-red-400/75 mt-1">{error}</p>
-          </div>
-        )}
-        
-        {!loading && visibleRows.length > 0 && (
-          <table className="w-full text-sm min-w-[1180px]">
-            <thead className="bg-[var(--bg)]">
-              <tr className="border-b border-white/10">
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest w-8"></th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Case ID</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Transaction</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Document</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Vendor</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Amount</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Risk Score</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">SAP Module</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Detected At</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/8">
-            {visibleRows.map((anom) => (
-              <tr key={anom.id} className="hover:bg-white/[0.025] transition-colors group">
-                <td className="px-3 py-3.5 text-[var(--muted)] group-hover:text-blue-400 cursor-pointer">
-                  <CaretRight size={14} />
-                </td>
-                <td className="px-3 py-3.5">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); openCaseInvestigation(anom.caseId); }}
-                    disabled={!anom.caseId || anom.caseId === "N/A"}
-                    className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer disabled:text-[var(--muted)] disabled:no-underline disabled:cursor-default"
-                  >
-                    {anom.caseId}
-                  </button>
-                </td>
-                <td className="px-3 py-3.5">
-                  <span className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer">{anom.transactionId}</span>
-                </td>
-                <td className="px-3 py-3.5 text-[12px] text-[var(--muted)] font-mono">{anom.document}</td>
-                <td className="px-3 py-3.5">
-                  <div className="text-[12px]">
-                    <p className="font-semibold text-[var(--text)]">{anom.vendor}</p>
-                    <p className="text-[10px] text-[var(--muted)]">{anom.vendorCode}</p>
-                  </div>
-                </td>
-                <td className="px-3 py-3.5">
-                  <div className="text-[12px] font-semibold text-[var(--text)]">
-                    {anom.amount.currency} {Number(anom.amount.value || 0).toLocaleString()}
-                  </div>
-                </td>
-                <td className="px-3 py-3.5">
-                  <div className="flex items-center gap-2 min-w-[86px]">
-                    <div className="w-12 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                      <div className={`h-full rounded-full ${getRiskColor(anom.riskScore)}`} style={{ width: `${Math.min(Math.max(Number(anom.riskScore) || 0, 0), 100)}%` }}></div>
-                    </div>
-                    <span className={`text-[11px] font-semibold ${getRiskTextColor(anom.riskScore)}`}>{anom.riskScore}</span>
-                  </div>
-                </td>
-                <td className="px-3 py-3.5">
-                  <span className={`text-[11px] font-bold px-2 py-1 rounded ${getModuleBadgeStyle(anom.sapModule)}`}>
-                    {anom.sapModule}
-                  </span>
-                </td>
-                <td className="px-3 py-3.5 text-[12px] text-[var(--muted)] whitespace-nowrap">{formatDetectedAt(anom.detectedAt)}</td>
-              </tr>
-            ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <div className="px-8 py-3 border-t border-white/10 flex items-center justify-between">
-        <p className="text-xs text-[var(--muted)]">Showing {rows.length} detected fraud cases</p>
-        <button
-          onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }}
-          className="px-6 py-2.5 rounded-lg bg-slate-700/40 hover:bg-slate-700/60 text-[var(--text)] text-sm font-semibold transition-colors"
-        >
-          Close
-        </button>
-      </div>
-    </Modal>
-    {investigationCaseId && (
-      <CaseModal
-        caseId={investigationCaseId}
-        onClose={() => setInvestigationCaseId(null)}
-        onUpdate={() => {}}
-      />
-    )}
-    </>
+    <DetectedCasesModal
+      anomalies={modalData.anomalies}
+      count={modalData.count}
+      source={modalData.source || "simulation"}
+      onClose={() => dispatch(closeModal())}
+    />
   );
 }
 
@@ -1780,16 +1528,24 @@ const DAY_OF_WEEK_OPTIONS = [
 const frequencyLabel = (freq) =>
   FREQUENCY_OPTIONS.find((o) => o.value === freq)?.label || freq;
 
+const scheduleParamInputType = (abapType) => {
+  if (!abapType) return "text";
+  const lower = abapType.toLowerCase();
+  if (lower.includes("dats") || lower.includes("date")) return "date";
+  if (lower.includes("tims") || lower.includes("time")) return "time";
+  if (lower.includes("dec") || lower.includes("float") || lower.includes("numc")) return "number";
+  return "text";
+};
+
 function ScheduleModal() {
   const dispatch = useAppDispatch();
-  const { modalType, selected, scheduleConfig, scheduleError, scheduleLoading, deployEnvs } = useAppSelector((s) => s.rules);
-  if (modalType !== "SCHEDULE") return null;
+  const { modalType, selected, scheduleConfig, scheduleError, scheduleLoading, simEnvs } = useAppSelector((s) => s.rules);
+  const [parameterPreview, setParameterPreview] = React.useState({});
+  const [loadingParams, setLoadingParams] = React.useState(false);
+  const [paramsError, setParamsError] = React.useState("");
 
   const isRecurring = scheduleConfig.type === "RECURRING";
   const isOneTime = scheduleConfig.type === "ONE_TIME";
-
-  const dateError = isOneTime && scheduleConfig.fromDate && scheduleConfig.toDate &&
-    new Date(scheduleConfig.toDate) < new Date(scheduleConfig.fromDate);
 
   const endDateError = isRecurring && scheduleConfig.endDate &&
     new Date(scheduleConfig.endDate) < new Date(new Date().toISOString().slice(0, 10));
@@ -1797,14 +1553,93 @@ function ScheduleModal() {
   const dayOfMonthError = isRecurring && scheduleConfig.frequency === "MONTHLY" && scheduleConfig.dayOfMonth &&
     (Number(scheduleConfig.dayOfMonth) < 1 || Number(scheduleConfig.dayOfMonth) > 31);
 
+  React.useEffect(() => {
+    if (modalType !== "SCHEDULE") return;
+    if (!scheduleConfig.environment || selected.length === 0) {
+      setParameterPreview({});
+      setParamsError("");
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingParams(true);
+    setParamsError("");
+
+    import("../../features/rules/rulesBackendAPI").then(({ fetchScheduleParameterPreviewAPI }) => {
+      fetchScheduleParameterPreviewAPI(selected, scheduleConfig.environment)
+        .then((res) => {
+          if (cancelled) return;
+          if (!res.success) {
+            setParamsError(res.message || "Failed to load CDS parameters");
+            setParameterPreview({});
+            dispatch(setScheduleConfig({ parameterValues: {} }));
+            return;
+          }
+
+          const preview = res.data || {};
+          setParameterPreview(preview);
+
+          const initialValues = {};
+          Object.entries(preview).forEach(([ruleId, rulePreview]) => {
+            const values = {};
+            (rulePreview.parameters || []).forEach((param) => {
+              if (param.value !== undefined && param.value !== null && param.value !== "") {
+                values[param.name] = param.value;
+              }
+            });
+            if (Object.keys(values).length > 0) {
+              initialValues[ruleId] = values;
+            }
+          });
+          dispatch(setScheduleConfig({ parameterValues: initialValues }));
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setParamsError(err?.message || "Failed to load CDS parameters");
+          setParameterPreview({});
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingParams(false);
+        });
+    });
+
+    return () => { cancelled = true; };
+  }, [modalType, scheduleConfig.environment, selected.join(",")]);
+
+  if (modalType !== "SCHEDULE") return null;
+
+  const handleParamChange = (ruleId, paramName, value) => {
+    const current = scheduleConfig.parameterValues || {};
+    const ruleValues = { ...(current[ruleId] || {}), [paramName]: value };
+    dispatch(setScheduleConfig({
+      parameterValues: { ...current, [ruleId]: ruleValues },
+    }));
+  };
+
+  const validateParameters = () => {
+    for (const ruleId of selected) {
+      const preview = parameterPreview[ruleId];
+      if (!preview?.parameters?.length) continue;
+      const values = scheduleConfig.parameterValues?.[ruleId] || {};
+      const missing = preview.parameters
+        .filter((param) => !values[param.name])
+        .map((param) => param.label || param.name);
+      if (missing.length > 0) {
+        return `${preview.ruleName || ruleId}: please fill CDS parameters — ${missing.join(", ")}`;
+      }
+    }
+    return "";
+  };
+
   const handleCreate = () => {
     if (!scheduleConfig.environment) {
       dispatch(setScheduleError("Please select a target environment."));
       return;
     }
-    if (isOneTime) {
-      if (dateError) { dispatch(setScheduleError("End date must be after start date.")); return; }
-      if (!scheduleConfig.fromDate) { dispatch(setScheduleError("Please select a from date.")); return; }
+    const paramValidationError = validateParameters();
+    if (paramValidationError) {
+      dispatch(setScheduleError(paramValidationError));
+      return;
     }
     if (isRecurring) {
       if (!scheduleConfig.frequency) {
@@ -1833,17 +1668,17 @@ function ScheduleModal() {
     dispatch(createRuleSchedule({ ruleIds: selected, config: scheduleConfig }));
   };
 
-  const envOpts = deployEnvs.length ? deployEnvs : [
+  const envOpts = simEnvs.length ? simEnvs : [
     { id: "DEV", name: "Development (DEV)" },
-    { id: "QAS", name: "QA / Testing (QAS)" },
-    { id: "PROD", name: "Production (PRD)" },
+    { id: "QA", name: "Quality Assurance (QA)" },
+    { id: "PROD", name: "Production (PROD)" },
   ];
 
   const inputCls = "w-full px-3 py-2.5 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]";
   const labelCls = "block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5";
 
   return (
-    <Modal onClose={() => dispatch(closeModal())} width="max-w-lg">
+    <Modal onClose={() => dispatch(closeModal())} width="max-w-lg max-h-[90vh] overflow-y-auto">
       <div className="px-6 pt-5 pb-4 border-b border-white/8">
         <h2 className="text-[15px] font-semibold text-[var(--text)]">Schedule Rule Action</h2>
         <p className="text-xs text-[var(--muted)] mt-0.5">Configure automated scheduling for selected rule(s)</p>
@@ -1895,23 +1730,70 @@ function ScheduleModal() {
           </select>
         </div>
 
-        {/* One-time dates */}
-        {isOneTime && (
-          <div className="grid grid-cols-2 gap-3">
+        {/* CDS View Parameters — pre-filled from live simulation, editable */}
+        {scheduleConfig.environment && (
+          <div className="space-y-3">
             <div>
-              <label className={labelCls}>From Date</label>
-              <input type="date" value={scheduleConfig.fromDate}
-                onChange={(e) => dispatch(setScheduleConfig({ fromDate: e.target.value }))}
-                className={inputCls}
-              />
+              <p className={labelCls}>CDS View Parameters</p>
+              <p className="text-[11px] text-[var(--muted)]">
+                Values are pre-filled from the latest live simulation. You can edit them before scheduling.
+              </p>
             </div>
-            <div>
-              <label className={labelCls}>To Date</label>
-              <input type="date" value={scheduleConfig.toDate}
-                onChange={(e) => dispatch(setScheduleConfig({ toDate: e.target.value }))}
-                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-              />
-            </div>
+
+            {loadingParams ? (
+              <div className="flex items-center gap-2 text-xs text-[var(--muted)] py-2">
+                <CircleNotch size={14} className="animate-spin" />
+                Loading parameters...
+              </div>
+            ) : paramsError ? (
+              <p className="text-xs text-red-400 flex items-center gap-1">
+                <Warning size={12} />
+                {paramsError}
+              </p>
+            ) : (
+              selected.map((ruleId) => {
+                const preview = parameterPreview[ruleId];
+                if (!preview) return null;
+
+                return (
+                  <div
+                    key={ruleId}
+                    className="p-3.5 rounded-xl border border-white/8 bg-white/[0.025] space-y-3"
+                  >
+                    <div>
+                      <p className="text-xs font-semibold text-[var(--text)]">{preview.ruleName || ruleId}</p>
+                      <p className="text-[10px] text-[var(--muted)] font-mono mt-0.5">{ruleId}</p>
+                      {preview.viewName && (
+                        <p className="text-[10px] text-[var(--muted)] mt-0.5">View: {preview.viewName}</p>
+                      )}
+                      {preview.hasLiveSimulationValues && (
+                        <p className="text-[10px] text-emerald-400/80 mt-1">Pre-filled from live simulation</p>
+                      )}
+                    </div>
+
+                    {!preview.parameters?.length ? (
+                      <p className="text-xs text-[var(--muted)]">No CDS view parameters for this rule.</p>
+                    ) : (
+                      preview.parameters.map((param) => (
+                        <div key={`${ruleId}-${param.name}`}>
+                          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">
+                            {param.label || param.name}
+                          </label>
+                          <input
+                            type={scheduleParamInputType(param.type)}
+                            placeholder={param.label || param.name}
+                            value={scheduleConfig.parameterValues?.[ruleId]?.[param.name] || ""}
+                            onChange={(e) => handleParamChange(ruleId, param.name, e.target.value)}
+                            className={inputCls}
+                          />
+                          <p className="text-[10px] text-[var(--muted)] mt-0.5">{param.type}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
 
@@ -1979,11 +1861,10 @@ function ScheduleModal() {
           </>
         )}
 
-        {(dateError || endDateError || dayOfMonthError || scheduleError) && (
+        {(endDateError || dayOfMonthError || scheduleError) && (
           <p className="text-xs text-red-400 flex items-center gap-1">
             <Warning size={12} />
-            {dateError ? "End date must be after start date."
-              : endDateError ? "End date must be today or in the future."
+            {endDateError ? "End date must be today or in the future."
               : dayOfMonthError ? "Day of month must be between 1 and 31."
               : scheduleError}
           </p>
@@ -2021,7 +1902,7 @@ function ScheduleModal() {
       </div>
 
       <div className="px-6 pb-5 flex gap-2">
-        <button onClick={handleCreate} disabled={scheduleLoading}
+        <button onClick={handleCreate} disabled={scheduleLoading || loadingParams}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white text-sm font-semibold transition-all shadow-sm disabled:opacity-50"
         >
           {scheduleLoading ? <CircleNotch size={15} className="animate-spin" /> : <CalendarCheck size={15} />}
