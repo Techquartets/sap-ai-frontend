@@ -175,39 +175,39 @@ export const runSimulationAPI = async (ruleId, config) => {
 
 export const deployRuleToEnvAPI = async (ruleId, environment) => {
 
-  // First fetch rule details
-  const ruleResponse = await apiClient.get(`${API_BASE}/`);
-
-  const rules = ruleResponse.data.data || [];
-
-  const rule = rules.find((r) => r.id === ruleId);
+  // Fetch the specific rule details from the API so deploy can use DB-backed artifacts
+  const ruleResponse = await apiClient.get(`${API_BASE}/${ruleId}/`);
+  const rule = ruleResponse.data.data;
 
   if (!rule) {
     throw new Error("Rule not found");
   }
 
- // Extract view name from cdsCode line like: "define view XXXXXXX"
-const extractedViewName = rule.cdsCode
-  ?.match(/define\s+view(?:\s+entity)?\s+([A-Z0-9_]+)/i)?.[1]
-  ?.replace(/_+$/, ""); // remove trailing underscores only
+  // Extract view name from cdsCode line like: "define view XXXXXXX"
+  const extractedViewName = rule.cdsCode
+    ?.match(/define\s+view(?:\s+entity)?\s+([A-Z0-9_]+)/i)?.[1]
+    ?.replace(/_+$/, ""); // remove trailing underscores only
 
-const viewName =
-  extractedViewName ||
-  rule.name
-    ?.replace(/[^A-Z0-9]/gi, "_")
-    ?.replace(/_+$/, "") // remove trailing underscores
-    ?.toUpperCase()
-    ?.substring(0, 24) ||
-  `ZAI_RULE_${ruleId}`;
+  const viewName =
+    extractedViewName ||
+    rule.name
+      ?.replace(/[^A-Z0-9]/gi, "_")
+      ?.replace(/_+$/, "") // remove trailing underscores
+      ?.toUpperCase()
+      ?.substring(0, 24) ||
+    `ZAI_RULE_${ruleId}`;
 
-const payload = {
-  cdsCode: rule.cdsCode || "",
-  cdsBaseinfo: rule.cdsBaseinfo || "",
-  cdsXml: rule.cdsXml || "",
-  viewName,
-  module: rule.module || "FI",
-  environment,
-};
+  const payload = {
+    cdsCode: rule.cdsCode || "",
+    cdsBaseinfo: rule.cdsBaseinfo || "",
+    cdsXml: rule.cdsXml || "",
+    cdsSrvd: rule.cdsSrvd || "",
+    cdsSrvb: rule.cdsSrvb || "",
+    viewName,
+    module: rule.module || "FI",
+    environment,
+  };
+
   console.log("RULE OBJECT:", rule);
   console.log("PAYLOAD:", payload);
 

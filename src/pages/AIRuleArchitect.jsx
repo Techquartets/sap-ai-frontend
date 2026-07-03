@@ -385,6 +385,8 @@ export default function AIRuleArchitect() {
           cds: resp.cdsCode,
           cdsBaseinfo: resp.cdsBaseinfo,
           cdsXml: resp.cdsXml,
+          cdsSrvd: resp.cdsSrvd,
+          cdsSrvb: resp.cdsSrvb,
           dynamicParameters: resp.dynamicParameters || {},
         });
 
@@ -399,6 +401,8 @@ export default function AIRuleArchitect() {
           cds:        resp.cdsCode,
           cdsBaseinfo:   resp.cdsBaseinfo,
           cdsXml:        resp.cdsXml,
+          cdsSrvd:      resp.cdsSrvd,
+          cdsSrvb:      resp.cdsSrvb,
           dynamicParameters: resp.dynamicParameters || {},
           msgId:      added.id,
         });
@@ -432,6 +436,8 @@ export default function AIRuleArchitect() {
       cds: message.cds || message.cdsCode || "",
       cdsBaseinfo: message.cdsBaseinfo || "",
       cdsXml: message.cdsXml || "",
+      cdsSrvd: message.cdsSrvd || "",
+      cdsSrvb: message.cdsSrvb || "",
       dynamicParameters: normalizeDynamicParameters(
         message.dynamicParameters || message.parameters || message.PARAMETERS || {}
       ),
@@ -498,23 +504,30 @@ export default function AIRuleArchitect() {
       cdsCode: currentRule.cds || currentRule.cdsCode || "",
       cdsBaseinfo: currentRule.cdsBaseinfo || "",
       cdsXml: currentRule.cdsXml || "",
+      cdsSrvd: currentRule.cdsSrvd || "",
+      cdsSrvb: currentRule.cdsSrvb || "",
       dynamicParameters: resolvedDynamicParameters,
       parameters: resolvedDynamicParameters,
 
   };
 
+  const cleanedRule = { ...newRule };
+  if (!cleanedRule.cdsBaseinfo?.trim()) delete cleanedRule.cdsBaseinfo;
+  if (!cleanedRule.cdsXml?.trim()) delete cleanedRule.cdsXml;
+  if (!cleanedRule.cdsSrvd?.trim()) delete cleanedRule.cdsSrvd;
+  if (!cleanedRule.cdsSrvb?.trim()) delete cleanedRule.cdsSrvb;
+
   try {
     setSavedToLib(true);
 
-    console.log("New Rule payload:", newRule); // Debug log
+    console.log("New Rule payload:", cleanedRule);
 
-    // ── SAVE TO DJANGO ─────────────────────────────────────────────────────────
     let savedRule = null;
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
     const res = await fetch(`${API_BASE_URL}/sap/rules/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newRule),
+      body: JSON.stringify(cleanedRule),
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -532,7 +545,6 @@ export default function AIRuleArchitect() {
         newRule.parameters,
     };
 
-    // ── OPTIONAL: keep redux synced ───────────────
     dispatch({
       type: "rules/addGeneratedRule",
       payload: savedRule,
