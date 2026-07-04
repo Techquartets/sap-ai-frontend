@@ -168,7 +168,13 @@ export async function sendMessage({ message, sessionId, ruleContext }) {
 
       cdsSrvd: data.cdsSrvd || "",
 
+      cdsSrvdSrvdsrv: data.cdsSrvdSrvdsrv || "",
+
       cdsSrvb: data.cdsSrvb || "",
+
+      cdsSrvbXml: data.cdsSrvbXml || "",
+
+      cdsG4ba: data.cdsG4ba || "",
 
       cdsXml: data.cdsXml || "",
 
