@@ -42,9 +42,11 @@ import {
   UploadSimple,
 } from "@phosphor-icons/react";
 import { Server } from "lucide-react";
+import { CaseModal } from "../../pages/caseManagement";
 // ✅ NEW: Import backend services if not passed as props
 import { ruleService } from "../../services/ruleService";
 import apiClient from "../../services/apiClient";
+import { generateTestDataAPI } from "../../features/rules/rulesBackendAPI";
 
 // ─── Visual Config (all hardcoded — no dynamic Tailwind interpolation) ────────
 
@@ -251,7 +253,7 @@ function ActionBar() {
   const { selected, bulkLoading, list } = useAppSelector((s) => s.rules);
   const has           = selected.length > 0;
   const selectedRules = list.filter((r) => selected.includes(r.id));
-  const allHaveSim    = selectedRules.every((r) => r.simulationHistory.length > 0);
+  const allHaveSim    = selectedRules.every((r) => Array.isArray(r.simulationHistory) && r.simulationHistory.length > 0);
   const allActive     = selectedRules.every((r) => r.status === "ACTIVE");
 
   const handleActivate = () => {
@@ -510,8 +512,15 @@ function ViewRuleModal() {
   const rule       = list.find((r) => r.id === stored?.id) || stored;
   if (!rule) return null;
 
-  const hasSim    = rule.simulationHistory.length > 0;
-  const latest    = hasSim ? rule.simulationHistory[0] : null;
+  const simHistory = Array.isArray(rule.simulationHistory) ? rule.simulationHistory : [];
+  const thresholds = rule.thresholds || {
+    amountThreshold: 0,
+    frequencyLimit: 0,
+    timeWindow: 0,
+    varianceThreshold: 0,
+  };
+  const hasSim    = simHistory.length > 0;
+  const latest    = hasSim ? simHistory[0] : null;
   const isActive  = rule.status === "ACTIVE";
   const isDeployed= rule.status === "DEPLOYED";
   const isDraft   = rule.status === "DRAFT";
@@ -535,7 +544,7 @@ function ViewRuleModal() {
             <span className="text-[11px] text-[var(--muted)] font-mono">{rule.id}</span>
             {hasSim && (
               <span className="text-[11px] text-[var(--muted)]">
-                {rule.simulationHistory.length} Simulation{rule.simulationHistory.length > 1 ? "s" : ""}
+                {simHistory.length} Simulation{simHistory.length > 1 ? "s" : ""}
               </span>
             )}
           </div>
@@ -579,28 +588,28 @@ function ViewRuleModal() {
       <div className="px-6 py-4 border-b border-white/8">
         {sectionHead("RULE THRESHOLDS / PARAMETERS")}
         <div className="grid grid-cols-2 gap-2.5">
-          {rule.thresholds.amountThreshold > 0 && (
+          {thresholds.amountThreshold > 0 && (
             <div className="px-4 py-3 rounded-lg border border-white/8 bg-white/[0.025]">
               <p className="text-[10px] text-[var(--muted)] mb-1">Amount Threshold</p>
-              <p className="text-sm font-semibold text-[var(--text)]">≥ ${rule.thresholds.amountThreshold.toLocaleString()}</p>
+              <p className="text-sm font-semibold text-[var(--text)]">≥ ${thresholds.amountThreshold.toLocaleString()}</p>
             </div>
           )}
-          {rule.thresholds.frequencyLimit > 0 && (
+          {thresholds.frequencyLimit > 0 && (
             <div className="px-4 py-3 rounded-lg border border-white/8 bg-white/[0.025]">
               <p className="text-[10px] text-[var(--muted)] mb-1">Frequency Limit</p>
-              <p className="text-sm font-semibold text-[var(--text)]">≤ {rule.thresholds.frequencyLimit} occurrences</p>
+              <p className="text-sm font-semibold text-[var(--text)]">≤ {thresholds.frequencyLimit} occurrences</p>
             </div>
           )}
-          {rule.thresholds.timeWindow > 0 && (
+          {thresholds.timeWindow > 0 && (
             <div className="px-4 py-3 rounded-lg border border-white/8 bg-white/[0.025]">
               <p className="text-[10px] text-[var(--muted)] mb-1">Time Window</p>
-              <p className="text-sm font-semibold text-[var(--text)]">{rule.thresholds.timeWindow} days</p>
+              <p className="text-sm font-semibold text-[var(--text)]">{thresholds.timeWindow} days</p>
             </div>
           )}
-          {rule.thresholds.varianceThreshold > 0 && (
+          {thresholds.varianceThreshold > 0 && (
             <div className="px-4 py-3 rounded-lg border border-white/8 bg-white/[0.025]">
               <p className="text-[10px] text-[var(--muted)] mb-1">Variance Threshold</p>
-              <p className="text-sm font-semibold text-[var(--text)]">± {rule.thresholds.varianceThreshold}%</p>
+              <p className="text-sm font-semibold text-[var(--text)]">± {thresholds.varianceThreshold}%</p>
             </div>
           )}
         </div>
@@ -664,7 +673,7 @@ function ViewRuleModal() {
             <div>
               <p className="text-sm font-semibold text-teal-400">Ready to Activate</p>
               <p className="text-[11px] text-teal-400/75 mt-0.5">
-                {rule.simulationHistory.length} simulation{rule.simulationHistory.length > 1 ? "s" : ""} completed. You can run more simulations or activate the rule.
+                {simHistory.length} simulation{simHistory.length > 1 ? "s" : ""} completed. You can run more simulations or activate the rule.
               </p>
             </div>
           </div>
@@ -687,7 +696,7 @@ function ViewRuleModal() {
         <div className="px-6 py-4 border-b border-white/8">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-[var(--text)]">Simulation History</p>
-            <span className="text-[11px] text-[var(--muted)]">{rule.simulationHistory.length} run{rule.simulationHistory.length > 1 ? "s" : ""}</span>
+            <span className="text-[11px] text-[var(--muted)]">{simHistory.length} run{simHistory.length > 1 ? "s" : ""}</span>
           </div>
           <div className="space-y-2">
             {rule.simulationHistory.map((sim, idx) => (
@@ -703,21 +712,21 @@ function ViewRuleModal() {
                   <span className="text-[10px] text-[var(--muted)]">{sim.runAt}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[11px]">
-                  <div><span className="text-[var(--muted)]">Date Range: </span><span className="text-[var(--text)]">{sim.dateRange.from || "—"} → {sim.dateRange.to || "—"}</span></div>
-                  <div><span className="text-[var(--muted)]">Transactions Scanned: </span><span className="text-[var(--text)] font-semibold">{sim.transactionsScanned.toLocaleString()}</span></div>
-                  <div><span className="text-[var(--muted)]">False Positive Rate: </span><span className="text-teal-400 font-semibold">{sim.falsePositiveRate}%</span></div>
-                  <div><span className="text-[var(--muted)]">Performance: </span><span className="text-teal-400 font-semibold">{sim.performance}</span></div>
+                  <div><span className="text-[var(--muted)]">Date Range: </span><span className="text-[var(--text)]">{sim.dateRange?.from || "—"} → {sim.dateRange?.to || "—"}</span></div>
+                  <div><span className="text-[var(--muted)]">Transactions Scanned: </span><span className="text-[var(--text)] font-semibold">{sim.transactionsScanned?.toLocaleString() || "—"}</span></div>
+                  <div><span className="text-[var(--muted)]">False Positive Rate: </span><span className="text-teal-400 font-semibold">{sim.falsePositiveRate ?? 0}%</span></div>
+                  <div><span className="text-[var(--muted)]">Performance: </span><span className="text-teal-400 font-semibold">{sim.performance || "N/A"}</span></div>
                   <div className="flex items-center gap-1">
                     <span className="text-[var(--muted)]">Anomalies Detected: </span>
                     <Siren size={11} className="text-red-400" />
                     <AnomaliesLink 
                       ruleId={rule.id} 
                       ruleName={rule.name}
-                      count={sim.anomaliesDetected}
+                      count={sim.anomaliesDetected || 0}
                       simId={sim.simId}
                     />
                   </div>
-                  <div><span className="text-[var(--muted)]">Thresholds: </span><span className="text-[var(--text)]">{sim.thresholds}</span></div>
+                  <div><span className="text-[var(--muted)]">Thresholds: </span><span className="text-[var(--text)]">{sim.thresholds || "N/A"}</span></div>
                 </div>
               </div>
             ))}
@@ -808,7 +817,7 @@ function DeployToEnvModal() {
           </div>
           <div className="grid grid-cols-2 gap-4 mt-3 text-xs">
             <div><span className="text-[var(--muted)]">SAP Module: </span><span className="font-semibold text-[var(--text)]">{rule.module}</span></div>
-            <div><span className="text-[var(--muted)]">Simulations: </span><span className="font-semibold text-[var(--text)]">{rule.simulationHistory.length} completed</span></div>
+            <div><span className="text-[var(--muted)]">Simulations: </span><span className="font-semibold text-[var(--text)]">{Array.isArray(rule.simulationHistory) ? rule.simulationHistory.length : 0} completed</span></div>
           </div>
         </div>
 
@@ -919,9 +928,16 @@ function DeploySuccessModal() {
 function AnomaliesModal() {
   const dispatch = useAppDispatch();
   const { modalData } = useAppSelector((s) => s.rules);
-  const [anomalies, setAnomalies] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState(null);
+  const [investigationCaseId, setInvestigationCaseId] = React.useState(null);
+//   const [anomalies] = React.useState(
+//   Array.isArray(modalData?.anomalies)
+//     ? modalData.anomalies.map(normalizeAnomaly)
+//     : []
+// );
+  // const [loading, setLoading] = React.useState(true);
+  const loading = false;
+  const error = null;
+  // const [error, setError] = React.useState(null);
 
   if (!modalData) return null;
 
@@ -949,53 +965,58 @@ function AnomaliesModal() {
       detectedAt: raw.detectedAt || raw.detected_at || raw.created_at || raw.timestamp || new Date().toISOString(),
     };
   }, []);
+  const anomalies = React.useMemo(() => {
+  return Array.isArray(modalData?.anomalies)
+    ? modalData.anomalies.map(normalizeAnomaly)
+    : [];
+}, [modalData?.anomalies, normalizeAnomaly]);
 
   // Fetch anomalies from backend when modal opens
-  React.useEffect(() => {
-    let mounted = true;
+  // React.useEffect(() => {
+  //   let mounted = true;
 
-    const fetchAnomalies = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  //   const fetchAnomalies = async () => {
+  //     try {
+  //       setLoading(true);
+  //       setError(null);
         
-        const params = new URLSearchParams();
-        if (ruleId && String(ruleId).trim()) params.append("rule_id", String(ruleId).trim());
-        if (simId && String(simId).trim()) params.append("sim_id", String(simId).trim());
-        params.append("limit", "100");
+  //       const params = new URLSearchParams();
+  //       if (ruleId && String(ruleId).trim()) params.append("rule_id", String(ruleId).trim());
+  //       if (simId && String(simId).trim()) params.append("sim_id", String(simId).trim());
+  //       params.append("limit", "100");
         
-        const url = `/sap/anomalies/detected/?${params.toString()}`;
-        const response = await apiClient.get(url);
-        const data = response?.data || {};
-        const sourceList = Array.isArray(data.anomalies)
-          ? data.anomalies
-          : Array.isArray(data.data)
-            ? data.data
-            : Array.isArray(data.results)
-              ? data.results
-              : [];
+  //       const url = `/sap/anomalies/detected/?${params.toString()}`;
+  //       const response = await apiClient.get(url);
+  //       const data = response?.data || {};
+  //       const sourceList = Array.isArray(data.anomalies)
+  //         ? data.anomalies
+  //         : Array.isArray(data.data)
+  //           ? data.data
+  //           : Array.isArray(data.results)
+  //             ? data.results
+  //             : [];
         
-        if (data.status && data.status !== "success" && sourceList.length === 0) {
-          throw new Error(data.message || "Failed to fetch anomalies");
-        }
+  //       if (data.status && data.status !== "success" && sourceList.length === 0) {
+  //         throw new Error(data.message || "Failed to fetch anomalies");
+  //       }
 
-        if (mounted) {
-          setAnomalies(sourceList.map(normalizeAnomaly));
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(err?.response?.data?.message || err.message || "Failed to fetch anomalies");
-        }
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
+  //       if (mounted) {
+  //         setAnomalies(sourceList.map(normalizeAnomaly));
+  //       }
+  //     } catch (err) {
+  //       if (mounted) {
+  //         setError(err?.response?.data?.message || err.message || "Failed to fetch anomalies");
+  //       }
+  //     } finally {
+  //       if (mounted) setLoading(false);
+  //     }
+  //   };
     
-    fetchAnomalies();
-    return () => {
-      mounted = false;
-    };
-  }, [ruleId, simId, normalizeAnomaly]);
+  //   fetchAnomalies();
+  //   return () => {
+  //     mounted = false;
+  //   };
+  // }, [ruleId, simId, normalizeAnomaly]);
 
   const getRiskColor = (score) => {
     if (score >= 90) return "bg-red-500";
@@ -1038,11 +1059,17 @@ function AnomaliesModal() {
     return d.toLocaleString();
   };
 
+  const openCaseInvestigation = (caseId) => {
+    if (!caseId || caseId === "N/A") return;
+    setInvestigationCaseId(caseId);
+  };
+
   const rows = anomalies;
   const visibleRows = rows.slice(0, 10);
 
   return (
-    <Modal onClose={() => dispatch(closeModal())} width="max-w-6xl">
+    <>
+    <Modal onClose={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} width="max-w-6xl">
       <div className="px-8 pt-6 pb-4 border-b border-white/10 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">
@@ -1053,7 +1080,7 @@ function AnomaliesModal() {
           </div>
           <p className="text-xs text-[var(--muted)] mt-2">{rows.length || Number(count) || 0} cases detected in simulation</p>
         </div>
-        <button onClick={() => dispatch(closeModal())} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
+        <button onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors">
           <X size={18} />
         </button>
       </div>
@@ -1101,7 +1128,14 @@ function AnomaliesModal() {
                   <CaretRight size={14} />
                 </td>
                 <td className="px-3 py-3.5">
-                  <span className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer">{anom.caseId}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openCaseInvestigation(anom.caseId); }}
+                    disabled={!anom.caseId || anom.caseId === "N/A"}
+                    className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer disabled:text-[var(--muted)] disabled:no-underline disabled:cursor-default"
+                  >
+                    {anom.caseId}
+                  </button>
                 </td>
                 <td className="px-3 py-3.5">
                   <span className="text-blue-400 font-mono text-[12px] font-semibold hover:underline cursor-pointer">{anom.transactionId}</span>
@@ -1142,13 +1176,21 @@ function AnomaliesModal() {
       <div className="px-8 py-3 border-t border-white/10 flex items-center justify-between">
         <p className="text-xs text-[var(--muted)]">Showing {rows.length} detected fraud cases</p>
         <button
-          onClick={() => dispatch(closeModal())}
+          onClick={() => { setInvestigationCaseId(null); dispatch(closeModal()); }}
           className="px-6 py-2.5 rounded-lg bg-slate-700/40 hover:bg-slate-700/60 text-[var(--text)] text-sm font-semibold transition-colors"
         >
           Close
         </button>
       </div>
     </Modal>
+    {investigationCaseId && (
+      <CaseModal
+        caseId={investigationCaseId}
+        onClose={() => setInvestigationCaseId(null)}
+        onUpdate={() => {}}
+      />
+    )}
+    </>
   );
 }
 
@@ -1158,19 +1200,202 @@ function SimulationModal() {
   const rule     = useAppSelector((s) => s.rules.activeRule);
   const sim      = useAppSelector((s) => s.rules.simulation);
   const simEnvs  = useAppSelector((s) => s.rules.simEnvs);
+  const [dynamicParams, setDynamicParams] = React.useState(null);
+  const [loadingParams, setLoadingParams] = React.useState(false);
+  const [generatedMd, setGeneratedMd] = React.useState("");
+  const [generating, setGenerating] = React.useState(false);
+  const [genError, setGenError] = React.useState("");
+
   if (sim.step === 0 || !rule) return null;
+  const thresholds = rule.thresholds || {
+    amountThreshold: 0,
+    frequencyLimit: 0,
+    timeWindow: 0,
+    varianceThreshold: 0,
+  };
+
+  const normalizeDynamicParams = (raw) => {
+    if (!raw) return null;
+    if (raw.LIST && Array.isArray(raw.LIST)) return raw;
+    if (raw.PARAMETERS?.LIST && Array.isArray(raw.PARAMETERS.LIST)) return raw.PARAMETERS;
+    if (Array.isArray(raw)) return { LIST: raw };
+    return null;
+  };
 
   const canRunLiveData = rule.status === "DEPLOYED" || !!rule.deployedEnv;
 
   const dateError = sim.config.fromDate && sim.config.toDate &&
     new Date(sim.config.toDate) < new Date(sim.config.fromDate);
+  
+  const hasDynamicParams =
+    dynamicParams?.LIST &&
+    dynamicParams.LIST.length > 0;
 
-  const handleRun = () => {
+  // Fetch dynamic parameters when modal opens
+  React.useEffect(() => {
+    if (sim.step > 0 && rule && !dynamicParams && !loadingParams) {
+      setLoadingParams(true);
+      import('../../features/rules/rulesBackendAPI').then(({ fetchRuleDetailsAPI }) => {
+        fetchRuleDetailsAPI(rule.id)
+          .then((res) => {
+            const normalized = normalizeDynamicParams(
+              res.dynamicParameters || res.data?.dynamicParameters || res.data?.parameters || rule.dynamicParameters || rule.parameters
+            );
+            if (normalized) setDynamicParams(normalized);
+            setLoadingParams(false);
+          })
+          .catch((err) => {
+            console.error('Failed to fetch dynamic parameters:', err);
+            setLoadingParams(false);
+          });
+      });
+    }
+  }, [sim.step, rule?.id]);
+
+  // Helper to map ABAP types to HTML input type
+  const getInputType = (abapType) => {
+    if (!abapType) return "text";
+    const lower = abapType.toLowerCase();
+    if (lower.includes("dats") || lower.includes("date")) return "date";
+    if (lower.includes("tims") || lower.includes("time")) return "time";
+    if (lower.includes("dec") || lower.includes("float") || lower.includes("numc")) return "number";
+    return "text";
+  };
+
+  // Render dynamic parameter fields
+  const renderDynamicFields = () => {
+    if (!dynamicParams?.LIST || dynamicParams.LIST.length === 0) {
+      return (
+        <p className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+          ⚠ No CDS View Parameters available for this rule.
+        </p>
+      );
+    }
+
+    return (
+      <>
+        <p className="text-xs font-semibold text-[var(--text)] mb-3 uppercase tracking-wider">CDS View Parameters</p>
+        {dynamicParams.LIST.map((param) => (
+          <div key={param.name}>
+            <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">{param.label}</label>
+            <input
+              type={getInputType(param.type)}
+              placeholder={param.label}
+              value={sim.config[param.name] || ""}
+              onChange={(e) => dispatch(setSimConfig({ [param.name]: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
+            />
+            <p className="text-[10px] text-[var(--muted)] mt-0.5">{param.type}</p>
+          </div>
+        ))}
+      </>
+    );
+  };
+
+  const handleRun = async () => {
     if (dateError) return;
-    dispatch(runSimulation({
-      ruleId: rule.id,
-      config: { ...sim.config, mode: sim.mode, environment: sim.selectedEnv?.id || "QA" },
-    }));
+
+    // Build dynamic params from simulation config (used by both branches)
+    const dynamicPayload = {};
+
+    if (dynamicParams?.LIST) {
+      dynamicParams.LIST.forEach((param) => {
+        const value = sim.config[param.name];
+
+        if (value !== undefined && value !== null && value !== "") {
+          dynamicPayload[param.name] = value;
+        }
+      });
+    }
+
+    // ── TEST DATA branch ── invoke generate_test_data_agent in backend ──
+    if (sim.mode === "test") {
+      setGenError("");
+
+      if (!rule.cdsCode || !rule.cdsCode.trim()) {
+        setGenError("This rule has no CDS code attached. Cannot generate test data.");
+        return;
+      }
+
+      // Build rule_context: description + entered CDS view parameter values
+      const ctxLines = [];
+      if (rule.name) ctxLines.push(`Rule: ${rule.name}`);
+      if (rule.description) ctxLines.push(`Description: ${rule.description}`);
+
+      if (dynamicParams?.LIST && dynamicParams.LIST.length > 0) {
+        const paramLines = dynamicParams.LIST
+          .map((p) => {
+            const v = dynamicPayload[p.name];
+            return v !== undefined ? `- ${p.label} (${p.name}) = ${v}` : null;
+          })
+          .filter(Boolean);
+
+        if (paramLines.length > 0) {
+          ctxLines.push("CDS view parameters:");
+          ctxLines.push(...paramLines);
+        }
+      }
+
+      const ruleContext = ctxLines.join("\n");
+
+      try {
+        setGenerating(true);
+        const result = await generateTestDataAPI(rule.cdsCode, ruleContext);
+        setGeneratedMd(result.output || "");
+        dispatch(setSimStep(7));
+      } catch (err) {
+        console.error("Generate test data failed:", err);
+        const msg =
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to generate test data";
+        setGenError(msg);
+      } finally {
+        setGenerating(false);
+      }
+      return;
+    }
+
+    // ── LIVE DATA branch (unchanged) ──
+    try {
+      // Call backend simulation API
+      await dispatch(runSimulation({
+        ruleId: rule.id,
+        config: {
+          ...sim.config,
+          mode: sim.mode,
+          environment: sim.selectedEnv?.id || "QA",
+          dynamic_params: dynamicPayload,
+        },
+      })).unwrap();
+
+      // Call anomalies endpoint
+      const params = new URLSearchParams();
+
+      params.append("rule_id", rule.id);
+
+      Object.entries(dynamicPayload).forEach(([key, value]) => {
+        params.append(key, value);
+      });
+
+      const anomalyResponse = await apiClient.get(
+        `/sap/anomalies/detected/?${params.toString()}`
+      );
+
+      const anomalyData = anomalyResponse?.data || {};
+
+      dispatch(closeSimulation());
+
+      dispatch(openModal({
+        type: "ANOMALIES",
+        rule,
+        anomalies: anomalyData.anomalies || [],
+        count: anomalyData.count || 0,
+        ruleId: rule.id,
+      }));
+    } catch (err) {
+      console.error("Simulation failed:", err);
+    }
   };
 
   const backBtn = (step) => (
@@ -1257,51 +1482,25 @@ function SimulationModal() {
         {closeBtn}
       </div>
       <div className="px-6 py-5 space-y-4">
-        <div className="p-3 rounded-xl bg-white/[0.04] border border-white/8 text-xs">
-          <p className="font-semibold text-[var(--muted)] uppercase tracking-wider text-[10px] mb-2">Rule Configuration</p>
-          <div className="grid grid-cols-3 gap-2">
-            <div><span className="text-[var(--muted)]">Module: </span><span className="font-medium text-[var(--text)]">{rule.module}</span></div>
-            <div><span className="text-[var(--muted)]">Amount: </span><span className="font-medium text-[var(--text)]">${(rule.thresholds.amountThreshold || 0).toLocaleString()}</span></div>
-            <div><span className="text-[var(--muted)]">Window: </span><span className="font-medium text-[var(--text)]">{rule.thresholds.timeWindow}d</span></div>
+        {/* Dynamic parameters from backend */}
+        {loadingParams && (
+          <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400">
+            Loading CDS parameters...
           </div>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Transaction Count</label>
-          <input
-            type="number" min={100} max={100000}
-            value={sim.config.transactionCount}
-            onChange={(e) => dispatch(setSimConfig({ transactionCount: Number(e.target.value) }))}
-            className="w-full px-3 py-2.5 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-          />
-          <p className="text-[10px] text-[var(--muted)] mt-1">Total synthetic transactions (mix of normal and anomalous)</p>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Transaction Date Range</label>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">From Date</p>
-              <input type="date" value={sim.config.fromDate}
-                onChange={(e) => dispatch(setSimConfig({ fromDate: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-              />
-            </div>
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">To Date</p>
-              <input type="date" value={sim.config.toDate}
-                onChange={(e) => dispatch(setSimConfig({ toDate: e.target.value }))}
-                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-              />
-            </div>
-          </div>
-          {dateError && <p className="text-xs text-red-400 mt-1.5 flex items-center gap-1"><Warning size={12} />End date must be after start date.</p>}
-        </div>
+        )}
+        
+        
+        {renderDynamicFields()}
+        
+        
         {sim.error && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{sim.error}</p>}
+        {genError && <p className="text-xs text-red-400 flex items-center gap-1"><Warning size={12} />{genError}</p>}
       </div>
       <div className="px-6 pb-5 flex gap-2">
-        <button disabled={!!dateError || sim.loading} onClick={handleRun}
+        <button disabled={!!dateError || generating} onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          {sim.loading ? <CircleNotch size={14} className="animate-spin" /> : <Database size={14} />} Generate & Continue
+          {generating ? <CircleNotch size={14} className="animate-spin" /> : <Database size={14} />} Generate & Continue
         </button>
         {cancelBtn}
       </div>
@@ -1371,26 +1570,18 @@ function SimulationModal() {
             <p className="text-[10px] text-[var(--muted)]">Simulation runs against live SAP {sim.selectedEnv?.id?.toLowerCase()} data</p>
           </div>
         </div>
-        <div>
-          <label className="block text-xs font-semibold text-[var(--text)] mb-1.5">Simulation Date Range</label>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">From Date</p>
-              <input type="date" value={sim.config.fromDate}
-                onChange={(e) => dispatch(setSimConfig({ fromDate: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-              />
-            </div>
-            <div>
-              <p className="text-[10px] text-[var(--muted)] mb-1">To Date</p>
-              <input type="date" value={sim.config.toDate}
-                onChange={(e) => dispatch(setSimConfig({ toDate: e.target.value }))}
-                className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-              />
-            </div>
+        
+        {/* Dynamic parameters from backend */}
+        {loadingParams && (
+          <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400">
+            Loading CDS parameters...
           </div>
-          {dateError && <p className="text-xs text-red-400 mt-1.5 flex items-center gap-1"><Warning size={12} />End date must be after start date.</p>}
-        </div>
+        )}
+        
+        
+        {renderDynamicFields()}
+        
+        
         <p className="text-[10px] text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
           ⚠ Simulation runs against SAP {sim.selectedEnv?.id}. Ensure data privacy compliance before proceeding.
         </p>
@@ -1398,7 +1589,7 @@ function SimulationModal() {
       </div>
       <div className="px-6 pb-5 flex gap-2">
         <button
-          disabled={!sim.config.fromDate || !sim.config.toDate || !!dateError || sim.loading}
+          disabled={sim.loading }
           onClick={handleRun}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
@@ -1427,11 +1618,47 @@ function SimulationModal() {
   );
 
   // Step 6 — redirect to view
-  if (sim.step === 6) {
-    dispatch(closeSimulation());
-    dispatch(openModal({ type: "VIEW", rule }));
-    return null;
-  }
+  // if (sim.step === 6) {
+  //   dispatch(closeSimulation());
+  //   dispatch(openModal({ type: "VIEW", rule }));
+  //   return null;
+  // }
+
+  // Step 7 — Generated test data result (Markdown from generate_test_data_agent)
+  if (sim.step === 7) return (
+    <Modal onClose={() => dispatch(closeSimulation())} width="max-w-3xl">
+      <div className="px-6 pt-5 pb-4 flex items-center justify-between border-b border-white/8">
+        <div>
+          <h2 className="text-[15px] font-semibold text-[var(--text)]">Generated Test Data</h2>
+          <p className="text-xs text-[var(--muted)] mt-0.5">{rule.name}</p>
+        </div>
+        {closeBtn}
+      </div>
+      <div className="px-6 py-5">
+        {generatedMd ? (
+          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--text)] bg-[var(--card)] border border-white/10 rounded-xl p-4 font-mono">
+            {generatedMd}
+          </pre>
+        ) : (
+          <p className="text-xs text-[var(--muted)]">No output returned by the agent.</p>
+        )}
+      </div>
+      <div className="px-6 pb-5 flex gap-2">
+        <button
+          onClick={() => { setGeneratedMd(""); setGenError(""); dispatch(setSimStep(2)); }}
+          className="px-4 py-2.5 rounded-xl border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 hover:text-[var(--text)] transition-colors"
+        >
+          Regenerate
+        </button>
+        <button
+          onClick={() => dispatch(closeSimulation())}
+          className="flex-1 py-2.5 rounded-xl bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold transition-all"
+        >
+          Done
+        </button>
+      </div>
+    </Modal>
+  );
 
   return null;
 }

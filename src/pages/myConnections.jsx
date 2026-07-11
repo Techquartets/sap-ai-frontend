@@ -24,8 +24,14 @@ import {
 import {
   Plus, PencilSimple, Trash, X, Warning,
   CheckCircle, HardDrive, WifiHigh, WifiSlash,
-  Globe, Lock,
+  Globe, Lock, SlidersHorizontal,
 } from "@phosphor-icons/react";
+import {
+  RISK_LEVELS,
+  MAX_RISK_VALUE,
+  loadRiskConfigs,
+  saveRiskConfigs,
+} from "../features/cases/riskConfig";
 
 // ─── Built-in servers (always present, not deletable) ────────────────────────
 const BUILTIN_SERVERS = [
@@ -206,6 +212,111 @@ function DeleteConfirmModal() {
   );
 }
 
+function RiskConfigModal({ open, onClose }) {
+  const [level, setLevel] = useState("LOW");
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [saved, setSaved] = useState(() => loadRiskConfigs());
+
+  if (!open) return null;
+
+  const submit = () => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setError("Value is required");
+      return;
+    }
+    if (parsed > MAX_RISK_VALUE) {
+      setError("Max value is 1 crore (10000000)");
+      return;
+    }
+    const deduped = saved.filter((x) => x.level !== level);
+    const next = saveRiskConfigs([...deduped, { level, maxValue: parsed }]);
+    setSaved(next);
+    setError("");
+    setSuccess(`Saved ${level} with max ${parsed.toLocaleString("en-US")}`);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-md bg-[#111827] border border-white/10 rounded-2xl shadow-2xl">
+        <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-white/8">
+          <div>
+            <h2 className="text-[15px] font-semibold text-[var(--text)]">Config Risk Level</h2>
+            <p className="text-xs text-[var(--muted)] mt-0.5">Set case amount thresholds (max 1 crore)</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[var(--muted)] hover:bg-white/5 transition-colors mt-0.5">
+            <X size={17} />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-[13px] font-semibold text-[var(--text)] mb-1.5">Risk Level</label>
+            <select
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-lg bg-[#0d1117] border border-[var(--border)] text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
+            >
+              {RISK_LEVELS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-[var(--text)] mb-1.5">Max Amount</label>
+            <input
+              type="number"
+              min="1"
+              max={MAX_RISK_VALUE}
+              value={value}
+              onChange={(e) => {
+                setValue(e.target.value);
+                setSuccess("");
+                setError("");
+              }}
+              placeholder="e.g. 2500000"
+              className="w-full px-3.5 py-2.5 rounded-lg bg-[#0d1117] border border-[var(--border)] text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--primary)]"
+            />
+            <p className="text-[11px] text-[var(--muted)] mt-1">Max allowed: 10000000</p>
+          </div>
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+              <Warning size={13} weight="fill" />{error}
+            </div>
+          )}
+          {success && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+              <CheckCircle size={13} weight="fill" />{success}
+            </div>
+          )}
+          {saved.length > 0 && (
+            <div className="rounded-lg border border-white/10 p-3 space-y-1.5">
+              {saved.map((x) => (
+                <p key={x.level} className="text-[12px] text-[var(--muted)]">
+                  {x.level}: <span className="text-[var(--text)] font-semibold">{x.maxValue.toLocaleString("en-US")}</span>
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 pb-5 flex gap-2">
+          <button onClick={submit} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[var(--primary)] hover:opacity-90 text-white text-sm font-semibold transition-opacity">
+            <CheckCircle size={15} weight="bold" />
+            Save Config
+          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Server Card ──────────────────────────────────────────────────────────────
 function ServerCard({ server }) {
   const dispatch = useDispatch();
@@ -299,6 +410,7 @@ function ServerCard({ server }) {
 export default function MyConnections() {
   const dispatch     = useDispatch();
   const customList   = useSelector(s => s.servers.list);
+  const [riskModalOpen, setRiskModalOpen] = useState(false);
 
   // All servers = built-ins + custom
   const allServers   = [...BUILTIN_SERVERS, ...customList];
@@ -328,18 +440,27 @@ export default function MyConnections() {
             {/* Header */}
             <div className="flex items-start justify-between">
               <div>
-                <h1 className="text-[18px] font-semibold text-[var(--text)]">My Connections</h1>
+                <h1 className="text-[18px] font-semibold text-[var(--text)]">Configurations</h1>
                 <p className="text-[12px] text-[var(--muted)] mt-0.5">
                   Manage your SAP server connections. All servers appear as deploy targets in Rule Library.
                 </p>
               </div>
-              <button
-                onClick={() => dispatch(openAddModal())}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--primary)] hover:opacity-90 text-white text-sm font-semibold transition-opacity shadow-sm"
-              >
-                <Plus size={16} weight="bold" />
-                Add Server
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setRiskModalOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--border)] text-[var(--text)] text-sm font-semibold hover:bg-white/5 transition-colors"
+                >
+                  <SlidersHorizontal size={16} weight="bold" />
+                  Config Risk Level
+                </button>
+                <button
+                  onClick={() => dispatch(openAddModal())}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--primary)] hover:opacity-90 text-white text-sm font-semibold transition-opacity shadow-sm"
+                >
+                  <Plus size={16} weight="bold" />
+                  Add Server
+                </button>
+              </div>
             </div>
 
             {/* Stats cards — clickable to filter */}
@@ -438,6 +559,7 @@ export default function MyConnections() {
 
       <ServerFormModal />
       <DeleteConfirmModal />
+      <RiskConfigModal open={riskModalOpen} onClose={() => setRiskModalOpen(false)} />
     </div>
   );
 }

@@ -13,7 +13,7 @@ import {
   fetchRulesAPI, fetchEnvironmentsAPI,
   deployRulesAPI, activateRulesAPI, deactivateRulesAPI,
   runSimulationAPI, deployRuleToEnvAPI,
-} from "./rulesAPI";
+} from "./rulesBackendAPI";
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
 

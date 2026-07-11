@@ -18,7 +18,7 @@ const menu = [
   { name: "AI Rule Architect",    path: "/architect",icon: GitBranch   },
   { name: "Case Management",      path: "/cases",    icon: FolderSimple},
   { name: "Security",             path: "/security", icon: ShieldCheck },
-  { name: "My Connections",       path: "/servers",  icon: HardDrive   },
+  { name: "Configurations",       path: "/servers",  icon: HardDrive   },
 ];
 
 export default function Sidebar() {
