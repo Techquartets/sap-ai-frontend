@@ -411,6 +411,13 @@ export default function AIRuleArchitect() {
           cdsG4ba:      resp.cdsG4ba,
           dynamicParameters: resp.dynamicParameters || {},
           msgId:      added.id,
+          cdsCodeFilename: resp.cdsCodeFilename,
+          cdsBaseinfoFilename: resp.cdsBaseinfoFilename,
+          cdsXmlFilename: resp.cdsXmlFilename,
+          cdsG4baFilename: resp.cdsG4baFilename,
+          cdsSrvdFilename: resp.cdsSrvdFilename,
+          cdsSrvdSrvdsrvFilename: resp.cdsSrvdSrvdsrvFilename,
+          cdsSrvbFilename: resp.cdsSrvbFilename,
         });
         setSavedToLib(false);
       }
@@ -447,6 +454,13 @@ export default function AIRuleArchitect() {
       cdsSrvb: message.cdsSrvb || "",
       cdsSrvbXml: message.cdsSrvbXml || "",
       cdsG4ba: message.cdsG4ba || "",
+      cdsCodeFilename: message.cdsCodeFilename || "",
+      cdsBaseinfoFilename: message.cdsBaseinfoFilename || "",
+      cdsXmlFilename: message.cdsXmlFilename || "",
+      cdsG4baFilename: message.cdsG4baFilename || "",
+      cdsSrvdFilename: message.cdsSrvdFilename || "",
+      cdsSrvdSrvdsrvFilename: message.cdsSrvdSrvdsrvFilename || "",
+      cdsSrvbFilename: message.cdsSrvbFilename || "",
       dynamicParameters: normalizeDynamicParameters(
         message.dynamicParameters || message.parameters || message.PARAMETERS || {}
       ),
@@ -518,6 +532,13 @@ export default function AIRuleArchitect() {
       cdsSrvb: currentRule.cdsSrvb || "",
       cdsSrvbXml: currentRule.cdsSrvbXml || "",
       cdsG4ba: currentRule.cdsG4ba || "",
+      cdsCodeFilename: currentRule.cdsCodeFilename || "",
+      cdsBaseinfoFilename: currentRule.cdsBaseinfoFilename || "",
+      cdsXmlFilename: currentRule.cdsXmlFilename || "",
+      cdsG4baFilename: currentRule.cdsG4baFilename || "",
+      cdsSrvdFilename: currentRule.cdsSrvdFilename || "",
+      cdsSrvdSrvdsrvFilename: currentRule.cdsSrvdSrvdsrvFilename || "",
+      cdsSrvbFilename: currentRule.cdsSrvbFilename || "",
       dynamicParameters: resolvedDynamicParameters,
       parameters: resolvedDynamicParameters,
 

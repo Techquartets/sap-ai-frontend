@@ -158,33 +158,47 @@ export async function sendMessage({ message, sessionId, ruleContext }) {
       // reply: removeCodeBlocks(aiText),
       reply: aiText,
 
-      module: detectModule(data.intent),
+      module: data.module || detectModule(data.intent),
 
-      riskScore: estimateRisk(data),
+      riskScore: data.riskScore ?? estimateRisk(data),
 
       cdsCode: data.cdsCode || "",
 
+      cdsCodeFilename: data.cdsCodeFilename || "",
+
       cdsBaseinfo: data.cdsBaseinfo || "",
+
+      cdsBaseinfoFilename: data.cdsBaseinfoFilename || "",
 
       cdsSrvd: data.cdsSrvd || "",
 
+      cdsSrvdFilename: data.cdsSrvdFilename || "",
+
       cdsSrvdSrvdsrv: data.cdsSrvdSrvdsrv || "",
 
+      cdsSrvdSrvdsrvFilename: data.cdsSrvdSrvdsrvFilename || "",
+
       cdsSrvb: data.cdsSrvb || "",
+
+      cdsSrvbFilename: data.cdsSrvbFilename || "",
 
       cdsSrvbXml: data.cdsSrvbXml || "",
 
       cdsG4ba: data.cdsG4ba || "",
 
+      cdsG4baFilename: data.cdsG4baFilename || "",
+
       cdsXml: data.cdsXml || "",
+
+      cdsXmlFilename: data.cdsXmlFilename || "",
 
       dynamicParameters: normalizeDynamicParameters(
         data.dynamicParameters || data.parameters || data.PARAMETERS || {}
       ),
 
-      threshold: extractAmount(message),
+      threshold: data.threshold ?? extractAmount(message),
 
-      timeDiff: extractDays(message),
+      timeDiff: data.timeDiff ?? extractDays(message),
     };
 
   } catch (err) {
