@@ -12,24 +12,32 @@
  */
 
 import apiClient from '../../services/apiClient';
+import { fetchUsersAPI } from '../security/securityAPI';
 
 const delay = (ms = 350) => new Promise(r => setTimeout(r, ms));
 
-// ─── Investigators (real-time list) ──────────────────────────────────────────
-export const INVESTIGATORS = [
-  { id:"INV-001", name:"Sarah Johnson",   title:"Fraud Investigator",        avatar:"SJ", available:true  },
-  { id:"INV-002", name:"Michael Chen",    title:"Senior Investigator",       avatar:"MC", available:true  },
-  { id:"INV-003", name:"Emily Rodriguez", title:"Compliance Investigator",   avatar:"ER", available:true  },
-  { id:"INV-004", name:"David Park",      title:"Risk Analyst",              avatar:"DP", available:false },
-  { id:"INV-005", name:"Lisa Thompson",   title:"Fraud Specialist",          avatar:"LT", available:true  },
-  { id:"INV-006", name:"James Wilson",    title:"Senior Risk Analyst",       avatar:"JW", available:true  },
-  { id:"INV-007", name:"Priya Sharma",    title:"Compliance Officer",        avatar:"PS", available:false },
-  { id:"INV-008", name:"AI Agent",        title:"AI Investigation Assistant",avatar:"AI", available:true, isAI:true },
-];
-
+// ─── Investigators (from SecurityUser records) ───────────────────────────────
 export const fetchInvestigatorsAPI = async () => {
-  await delay(200);
-  return { success: true, data: INVESTIGATORS };
+  try {
+    const users = await fetchUsersAPI();
+    const investigators = (users || [])
+      .filter((u) => u.status === "Active" && !u.is_locked)
+      .filter((u) => ["Investigator", "Analyst", "Admin", "Manager"].includes(u.role))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        title: u.role,
+        avatar: u.name
+          ? u.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
+          : "??",
+        available: true,
+      }));
+
+    return { success: true, data: investigators };
+  } catch (error) {
+    console.error("fetchInvestigatorsAPI error:", error);
+    return { success: false, data: [], error: error.message };
+  }
 };
 
 // ─── Seed Cases ───────────────────────────────────────────────────────────────
@@ -260,7 +268,8 @@ export const fetchCaseDetailAPI = async (id) => {
       environment: "SAP",
       status: c.reviewed ? "Reviewed" : "New",
       closureStatus: null,
-      assignee: c.reviewedBy || "Unassigned",
+      assignee: c.assignee || "Unassigned",
+      assigneeId: c.assigneeId ?? null,
       createdAt: c.detectedAt,
 
       detail: {
@@ -492,15 +501,33 @@ export const fetchCaseDetailAPI = async (id) => {
 };
 
 export const updateCaseAPI = async (id, payload) => {
-  await delay(400);
-
-  const index = SEED_CASES.findIndex(c => c.id === id);
-  if (index !== -1) {
-    SEED_CASES[index] = { ...SEED_CASES[index], ...payload };
-    saveCases();
+  try {
+    const response = await apiClient.patch(
+      `/sap/cases/${encodeURIComponent(id)}/`,
+      payload
+    );
+    const apiData = response.data;
+    if (apiData?.status !== "success") {
+      return { success: false, error: apiData?.message || "Update failed" };
+    }
+    const c = apiData.data;
+    return {
+      success: true,
+      data: {
+        id: c.caseId,
+        assignee: c.assignee,
+        assigneeId: c.assigneeId ?? null,
+        status: c.caseStatus || c.status,
+        closureStatus: c.closureStatus,
+      },
+    };
+  } catch (error) {
+    console.error("updateCaseAPI error:", error);
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message || "Update failed",
+    };
   }
-
-  return { success:true, data:{ id, ...payload } };
 };
 
 export const createTaskAPI = async (caseId, task) => {
@@ -508,16 +535,8 @@ export const createTaskAPI = async (caseId, task) => {
   return { success:true, data:{ id:`TASK-${Date.now()}`, caseId, ...task, createdAt:new Date().toLocaleString(), taskStatus:"Open" } };
 };
 
-export const assignCaseAPI = async (id, assignee) => {
-  await delay(350);
-
-  const index = SEED_CASES.findIndex(c => c.id === id);
-  if (index !== -1) {
-    SEED_CASES[index].assignee = assignee;
-    saveCases();
-  }
-
-  return { success:true, data:{ id, assignee } };
+export const assignCaseAPI = async (id, assigneeId) => {
+  return updateCaseAPI(id, { assigneeId });
 };
 
 export const TASK_PROCESSORS = [

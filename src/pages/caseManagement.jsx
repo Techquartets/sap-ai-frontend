@@ -14,7 +14,8 @@
  */
 
 import { useEffect, useState, useCallback, useRef, memo } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import Sidebar from "../components/layout/Sidebar";
 import Topbar from "../components/layout/Topbar";
 import {
@@ -118,12 +119,17 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
     fetchInvestigatorsAPI().then(r => { if (r.success) setInvestigators(r.data); setLoading(false); });
   }, []);
 
-  const doAssign = async (name) => {
-    setAssigning(name);
-    await assignCaseAPI(caseId, name);
-    onAssign(name);
+  const doAssign = async (user) => {
+    setAssigning(user.id);
+    const r = await assignCaseAPI(caseId, user.id);
+    if (r.success) {
+      onAssign({ assigneeId: user.id, assignee: user.name });
+    }
     setAssigning(null);
   };
+
+  const currentUserId = currentUser?.id;
+  const currentUserName = currentUser?.name || "Me";
 
   return (
     <div className="fixed inset-0 z-[55] flex" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -135,16 +141,16 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {/* Assign to Me */}
-          <button onClick={() => doAssign(currentUser)}
+          <button onClick={() => currentUserId && doAssign({ id: currentUserId, name: currentUserName })}
             className="w-full flex items-center gap-3 p-3 rounded-xl border border-[var(--primary)]/40 bg-[var(--primary)]/10 hover:bg-[var(--primary)]/15 transition-colors text-left group">
             <div className="w-9 h-9 rounded-full bg-[var(--primary)] flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0">
-              {currentUser?.[0]?.toUpperCase() || "A"}
+              {currentUserName?.[0]?.toUpperCase() || "A"}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-semibold text-[var(--text)]">Assign to Me</p>
-              <p className="text-[10px] text-[var(--muted)]">Current User</p>
+              <p className="text-[10px] text-[var(--muted)]">{currentUserName}</p>
             </div>
-            {assigning === currentUser ? <CircleNotch size={14} className="animate-spin text-[var(--primary)]" /> : <ArrowRight size={14} className="text-[var(--primary)] opacity-0 group-hover:opacity-100 transition-opacity" />}
+            {assigning === currentUserId ? <CircleNotch size={14} className="animate-spin text-[var(--primary)]" /> : <ArrowRight size={14} className="text-[var(--primary)] opacity-0 group-hover:opacity-100 transition-opacity" />}
           </button>
 
           {loading ? (
@@ -153,8 +159,8 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
               <span className="text-[11px]">Loading investigators...</span>
             </div>
           ) : (
-            investigators.map(inv => (
-              <button key={inv.id} onClick={() => doAssign(inv.name)}
+            investigators.filter((inv) => inv.id !== currentUserId).map(inv => (
+              <button key={inv.id} onClick={() => doAssign(inv)}
                 className="w-full flex items-center gap-3 p-3 rounded-xl border border-[var(--border)] hover:border-[var(--primary)]/40 hover:bg-white/[0.03] transition-all text-left group">
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0 ${inv.isAI ? "bg-purple-600" : inv.available ? "bg-teal-600" : "bg-gray-600"}`}>
                   {inv.avatar}
@@ -166,7 +172,7 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
                   </div>
                   <p className="text-[10px] text-[var(--muted)] truncate">{inv.title}</p>
                 </div>
-                {assigning === inv.name ? <CircleNotch size={14} className="animate-spin text-blue-400" /> : <ArrowRight size={14} className="text-[var(--muted)] opacity-0 group-hover:opacity-100 transition-opacity" />}
+                {assigning === inv.id ? <CircleNotch size={14} className="animate-spin text-blue-400" /> : <ArrowRight size={14} className="text-[var(--muted)] opacity-0 group-hover:opacity-100 transition-opacity" />}
               </button>
             ))
           )}
@@ -178,6 +184,7 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
 
 // ─── Case Investigation Modal ──────────────────────────────────────────────────
 export function CaseModal({ caseId, onClose, onUpdate }) {
+  const authUser = useSelector((s) => s.auth.user);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -239,11 +246,11 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
     setSaving(false);
   }, [data, saving, onUpdate]);
 
-  const handleAssign = useCallback((name) => {
-    setData(p => ({ ...p, assignee: name }));
-    onUpdate(caseId, { assignee: name });
+  const handleAssign = useCallback(({ assigneeId, assignee }) => {
+    setData(p => ({ ...p, assignee, assigneeId }));
+    onUpdate(caseId, { assignee, assigneeId });
     setShowAssign(false);
-    setToast(`Case assigned to ${name}`);
+    setToast(`Case assigned to ${assignee}`);
   }, [caseId, onUpdate]);
 
   const handleCreateTask = useCallback(async () => {
@@ -836,7 +843,7 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
       {showAssign && (
         <AssignPanel
           caseId={caseId}
-          currentUser="Admin"
+          currentUser={authUser}
           onAssign={handleAssign}
           onClose={() => setShowAssign(false)}
         />
@@ -851,6 +858,7 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function CaseManagement() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -889,7 +897,8 @@ export default function CaseManagement() {
               environment: "PRODUCTION",
               status: "New",
               closureStatus: null,
-              assignee: "Unassigned",
+              assignee: a.assignee || a.reviewedBy || "Unassigned",
+              assigneeId: a.assigneeId ?? null,
               createdAt: new Date(a.detectedAt || a.detected_at).toLocaleString(),
               // Keep original anomaly data for detail modal
               _anomaly: a
@@ -904,6 +913,18 @@ export default function CaseManagement() {
         setLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const caseId = params.get("case");
+    if (!caseId || cases.length === 0) return;
+
+    const match = cases.find((c) => c.id === caseId);
+    if (match) {
+      setSelected(match.id);
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.search, cases, navigate, location.pathname]);
 
   // Listen for risk config changes
   useEffect(() => {

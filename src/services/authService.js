@@ -4,9 +4,7 @@ export const authService = {
 
   // LOGIN
   login: async (email, password) => {
-
     try {
-
       const response = await apiClient.post(
         "/sap/security/login/",
         {
@@ -17,34 +15,19 @@ export const authService = {
 
       const data = response.data;
 
-      // save token/user
       localStorage.setItem(
-
-        "authToken",
-
-        data.token || "authenticated"
-      );
-
-      localStorage.setItem(
-
         "user",
-
         JSON.stringify(data.user)
       );
 
       return {
-
         success: true,
-
         user: data.user,
       };
 
     } catch (error) {
-
       return {
-
         success: false,
-
         error:
           error.response?.data?.message ||
           "Invalid credentials",
@@ -55,9 +38,11 @@ export const authService = {
   // LOGOUT
   logout: async () => {
 
-    localStorage.removeItem("authToken");
-
-    localStorage.removeItem("user");
+    try {
+      await apiClient.post("/sap/security/logout/");
+    } finally {
+      localStorage.removeItem("user");
+    }
 
     return {
       success: true,
@@ -70,20 +55,15 @@ export const authService = {
     const user = localStorage.getItem("user");
 
     if (!user) {
-
       return {
-
         success: false,
-
         data: null,
       };
     }
 
     return {
-
-      success: true,
-
-      data: JSON.parse(user),
+        success: true,
+        data: JSON.parse(user),
     };
   },
 };

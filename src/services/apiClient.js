@@ -7,8 +7,9 @@ const apiClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: parseInt(API_TIMEOUT),
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
+  withCredentials: true,
 });
 
 // Add request interceptor
@@ -30,7 +31,7 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       // Clear auth on 401
-      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
       window.location.href = '/login';
     }
     return Promise.reject(error);
