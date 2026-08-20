@@ -203,8 +203,13 @@ export const deployRuleToEnvAPI = async (ruleId, environment) => {
   }
 
   // Extract view name from cdsCode line like: "define view XXXXXXX"
-  const extractedViewName = rule.cdsCode
-    ?.match(/define\s+view(?:\s+entity)?\s+([A-Z0-9_]+)/i)?.[1]
+  // Strip comments so guardrail text ("above define view\n  4. ...") is ignored.
+  const strippedCds = (rule.cdsCode || "")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ")
+    .replace(/--[^\n]*/g, " ");
+  const extractedViewName = strippedCds
+    .match(/\bdefine\s+(?:root\s+)?view(?:\s+entity)?\s+([A-Za-z_][A-Za-z0-9_]*)/i)?.[1]
     ?.replace(/_+$/, ""); // remove trailing underscores only
 
   const viewName =

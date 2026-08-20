@@ -49,6 +49,32 @@ const QUICK_REPLIES = {
     "What kind of SAP anomaly detection rules can you create?",
 };
 
+/** Derive CDS view name from source or filename for rule library naming. */
+function extractCdsViewName(cdsCode, cdsCodeFilename) {
+  if (cdsCode) {
+    // Strip comments so guardrail prose like "above define view\n  4. ..."
+    // is not mistaken for the real DDLS name.
+    const stripped = String(cdsCode)
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, " ")
+      .replace(/--[^\n]*/g, " ");
+    const match = stripped.match(
+      /\bdefine\s+(?:root\s+)?view(?:\s+entity)?\s+([A-Za-z_][A-Za-z0-9_]*)/i
+    );
+    if (match?.[1]) return match[1];
+  }
+  if (cdsCodeFilename) {
+    const stem = String(cdsCodeFilename)
+      .replace(/\.(ddls\.)?(asddls|baseinfo|xml)$/i, "")
+      .split("/")
+      .pop()
+      ?.trim();
+    // Ignore numeric-only stems (e.g. "4.ddls.asddls")
+    if (stem && /^[A-Za-z_][A-Za-z0-9_]*$/.test(stem)) return stem;
+  }
+  return "ZAI_RULE";
+}
+
 const INITIAL_MSG = {
   id: "init",
   role: "ai",
@@ -487,10 +513,13 @@ export default function AIRuleArchitect() {
     return;
   }
 
+  const cdsCode = currentRule.cds || currentRule.cdsCode || "";
+  const viewName = extractCdsViewName(cdsCode, currentRule.cdsCodeFilename);
+
   const newRule = {
       id: `RULE-AI-${Date.now()}`,
 
-      name: `AI: ${currentRule.moduleName} Anomaly Rule`,
+      name: viewName,
 
       description:
         `AI-generated rule: flags transactions in ${currentRule.moduleName} ` +
@@ -524,7 +553,7 @@ export default function AIRuleArchitect() {
       deployedEnv: null,
       activatedAt: null,
 
-      cdsCode: currentRule.cds || currentRule.cdsCode || "",
+      cdsCode,
       cdsBaseinfo: currentRule.cdsBaseinfo || "",
       cdsXml: currentRule.cdsXml || "",
       cdsSrvd: currentRule.cdsSrvd || "",
@@ -583,7 +612,7 @@ export default function AIRuleArchitect() {
       role: "ai",
       type: "info",
       text:
-        `✅ Rule added to your Rule Library as a **DRAFT**.\n\n` +
+        `✅ Rule **${savedRule.name}** added to your Rule Library as a **DRAFT**.\n\n` +
         `Rule ID: **${savedRule.id}**\n` +
         `Module: **${savedRule.module}**\n` +
         `Risk: **${savedRule.risk}**\n\n` +

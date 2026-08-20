@@ -232,6 +232,30 @@ function buildGenericDetail(c) {
 // ─── Case APIs ─────────────────────────────────────────────────────────────────
 export const fetchCasesAPI = async () => { await delay(350); return { success:true, data:SEED_CASES }; };
 
+export const fetchAnomaliesListAPI = async ({ ruleId, limit = 1000 } = {}) => {
+  const params = new URLSearchParams();
+  params.append("limit", String(limit));
+  if (ruleId) params.append("rule_id", ruleId);
+  const response = await apiClient.get(`/sap/anomalies/list/?${params.toString()}`);
+  return response.data;
+};
+
+export const generateCasesFromRuleAPI = async (ruleId, extraParams = {}) => {
+  const params = new URLSearchParams();
+  params.append("rule_id", ruleId);
+  params.append("persist", "1");
+  params.append("limit", "1000");
+  Object.entries(extraParams || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.append(key, value);
+    }
+  });
+  const response = await apiClient.get(`/sap/anomalies/detected/?${params.toString()}`, {
+    timeout: 90000,
+  });
+  return response.data;
+};
+
 export const fetchCaseDetailAPI = async (id) => {
   try {
     const response = await apiClient.get(
@@ -254,13 +278,13 @@ export const fetchCaseDetailAPI = async (id) => {
       id: c.caseId,
       caseId: c.caseId,
       riskScore: c.riskScore || 0,
-      title: `Duplicate Invoice Detection - ${c.vendor}`,
-      ruleName: "Duplicate Invoice Check",
-      ruleId: c.ruleId || "RULE-DUP-001",
+      title: `${c.vendor || c.vendorName || "SAP document"} - ${c.document || c.caseId}`,
+      ruleName: c.ruleName || "SAP Detection Rule",
+      ruleId: c.ruleId || "",
       environment: "SAP",
-      status: c.reviewed ? "Reviewed" : "New",
-      closureStatus: null,
-      assignee: c.reviewedBy || "Unassigned",
+      status: c.status || c.caseStatus || (c.reviewed ? "Reviewed" : "New"),
+      closureStatus: c.closureStatus || null,
+      assignee: c.assignee || c.reviewedBy || "Unassigned",
       createdAt: c.detectedAt,
 
       detail: {

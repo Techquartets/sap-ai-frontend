@@ -18,9 +18,11 @@ import { useLocation } from "react-router-dom";
 import Sidebar from "../components/layout/Sidebar";
 import Topbar from "../components/layout/Topbar";
 import {
-  fetchCasesAPI, fetchCaseDetailAPI, updateCaseAPI,
+  fetchCaseDetailAPI, updateCaseAPI,
   createTaskAPI, assignCaseAPI, fetchInvestigatorsAPI, TASK_PROCESSORS,
+  fetchAnomaliesListAPI, generateCasesFromRuleAPI,
 } from "../features/cases/casesApi";
+import { fetchRulesAPI } from "../features/rules/rulesBackendAPI";
 import {
   MagnifyingGlass, X, Warning, CircleNotch, CheckCircle,
   Robot, FunnelSimple, FileText, Clock, Users,
@@ -849,6 +851,28 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
 }
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
+function toCaseRow(a, idx) {
+  const caseId = a.caseId || a.case_id || `C-${8000 + idx}`;
+  const amountValue = Number(a.amount?.value ?? a.Amount ?? a.amount ?? 0) || 0;
+  const currency = a.amount?.currency || a.Currency || a.currency || "USD";
+  const title = `${a.vendorName || a.vendor || "Unknown Vendor"} - ${amountValue.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
+  return {
+    id: caseId,
+    riskScore: a.riskScore || a.risk_score || 0,
+    amountValue,
+    amountCurrency: currency,
+    title,
+    ruleName: a.ruleName || a.rule_name || "SAP Detection Rule",
+    ruleId: a.ruleId || a.rule_id || "",
+    environment: "PRODUCTION",
+    status: a.status || a.caseStatus || "New",
+    closureStatus: a.closureStatus || null,
+    assignee: a.assignee || "Unassigned",
+    createdAt: new Date(a.detectedAt || a.detected_at).toLocaleString(),
+    _anomaly: a,
+  };
+}
+
 export default function CaseManagement() {
   const location = useLocation();
   const [cases, setCases] = useState([]);
@@ -859,51 +883,71 @@ export default function CaseManagement() {
   const [selected, setSelected] = useState(null);
   const [checked, setChecked] = useState(new Set());
   const [riskConfigs, setRiskConfigs] = useState(() => loadRiskConfigs());
+  const [rules, setRules] = useState([]);
+  const [selectedRuleId, setSelectedRuleId] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generateMsg, setGenerateMsg] = useState("");
+
+  const selectedRule = rules.find((r) => r.id === selectedRuleId);
+
+  const loadCases = useCallback(async (ruleId) => {
+    setLoading(true);
+    try {
+      const json = await fetchAnomaliesListAPI({ ruleId, limit: 1000 });
+      if (json.status === "success" && json.anomalies) {
+        setCases(json.anomalies.map(toCaseRow));
+      } else {
+        setCases([]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch anomalies:", err);
+      setCases([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    // Support navigation from dashboard with pre-set status filter
     if (location.state?.statusFilter) setStatusF(location.state.statusFilter);
-    
-    // Fetch stored anomalies from database via API endpoint
-    setLoading(true);
-    fetch(`/sap/anomalies/list/?limit=1000`)
-      .then(res => res.json())
-      .then(json => {
-        if (json.status === 'success' && json.anomalies) {
-          // Transform anomalies into case format
-          const transformedCases = json.anomalies.map((a, idx) => {
-            // Auto-generate Case ID if not present
-            const caseId = a.caseId || a.case_id || `C-${8000 + idx}`;
-            const amountValue = Number(a.amount?.value ?? a.Amount ?? a.amount ?? 0) || 0;
-            const currency = a.amount?.currency || a.Currency || a.currency || "USD";
-            const title = `${a.vendorName || a.vendor || 'Unknown Vendor'} - ${amountValue.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${currency}`;
-            
-            return {
-              id: caseId,
-              riskScore: a.riskScore || a.risk_score || 0,
-              amountValue,
-              amountCurrency: currency,
-              title,
-              ruleName: "Duplicate Invoice Detection",
-              ruleId: "RULE-DUPLICATE-INV",
-              environment: "PRODUCTION",
-              status: "New",
-              closureStatus: null,
-              assignee: "Unassigned",
-              createdAt: new Date(a.detectedAt || a.detected_at).toLocaleString(),
-              // Keep original anomaly data for detail modal
-              _anomaly: a
-            };
-          });
-          setCases(transformedCases);
-        }
-        setLoading(false);
+    fetchRulesAPI()
+      .then((r) => {
+        const list = r.data || [];
+        setRules(list);
+        const preset = location.state?.ruleId || "";
+        setSelectedRuleId(preset);
       })
-      .catch(err => {
-        console.error('Failed to fetch anomalies:', err);
-        setLoading(false);
-      });
+      .catch((err) => console.error("Failed to fetch rules:", err));
   }, []);
+
+  useEffect(() => {
+    loadCases(selectedRuleId || undefined);
+  }, [selectedRuleId, loadCases]);
+
+  const handleGenerate = async () => {
+    if (!selectedRuleId) {
+      setGenerateMsg("Select a rule first");
+      return;
+    }
+    setGenerating(true);
+    setGenerateMsg("");
+    try {
+      const result = await generateCasesFromRuleAPI(selectedRuleId);
+      if (result.status === "success") {
+        setGenerateMsg(
+          `Generated ${result.count || 0} cases from ${result.ruleName || "rule"}`
+          + (result.odata?.version ? ` (${result.odata.version})` : "")
+        );
+        await loadCases(selectedRuleId);
+      } else {
+        setGenerateMsg(result.message || "Failed to generate cases");
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || "Failed to generate cases";
+      setGenerateMsg(msg);
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   // Listen for risk config changes
   useEffect(() => {
@@ -938,12 +982,42 @@ export default function CaseManagement() {
           <style>{`.no-scroll::-webkit-scrollbar{display:none}`}</style>
           <div className="no-scroll max-w-7xl mx-auto px-2 py-8 space-y-4">
 
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-[17px] font-semibold text-[var(--text)]">Detected Anomalies - Duplicate Invoice Investigation</h1>
-                <p className="text-[12px] text-[var(--muted)] mt-0.5">Live detected duplicate invoices from SAP OData endpoint</p>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="text-[17px] font-semibold text-[var(--text)]">Detected Anomalies</h1>
+                <p className="text-[12px] text-[var(--muted)] mt-0.5">
+                  {selectedRule
+                    ? `Cases for ${selectedRule.name} — generate from the rule's SAP OData service`
+                    : "Select a rule, then generate cases from its SAP OData endpoint"}
+                </p>
+                {generateMsg && (
+                  <p className="text-[11px] text-blue-300 mt-1 break-all">{generateMsg}</p>
+                )}
               </div>
-              <span className="text-[12px] font-semibold text-[var(--text)] px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)]">{cases.length} Total Anomalies</span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <select
+                  value={selectedRuleId}
+                  onChange={(e) => { setSelectedRuleId(e.target.value); setGenerateMsg(""); }}
+                  className={`${selCls} max-w-[280px]`}
+                >
+                  <option value="">All rules</option>
+                  {rules.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating || !selectedRuleId}
+                  className="px-3.5 py-2 rounded-lg bg-[var(--primary)] text-white text-[12px] font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity whitespace-nowrap"
+                >
+                  {generating ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <CircleNotch size={13} className="animate-spin" /> Hitting SAP...
+                    </span>
+                  ) : "Generate Cases"}
+                </button>
+                <span className="text-[12px] font-semibold text-[var(--text)] px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)]">{cases.length} Total</span>
+              </div>
             </div>
 
             <div className="flex items-center gap-2.5">
