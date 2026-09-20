@@ -261,3 +261,32 @@ export const deployRuleToEnvAPI = async (ruleId, environment) => {
     },
   };
 };
+
+// ─────────────────────────────────────────────────────────────
+// CREATE ONE-TIME SCHEDULES
+// ─────────────────────────────────────────────────────────────
+
+export const createSchedulesAPI = async ({
+  ruleIds,
+  environment,
+  runAt,
+  scheduleType = "ONE_TIME",
+  scheduleNow = false,
+  params = {},
+}) => {
+  const response = await apiClient.post("/sap/schedules/", {
+    ruleIds,
+    environment,
+    runAt,
+    scheduleType,
+    scheduleNow,
+    params,
+  });
+
+  return {
+    success: response.data?.status === "success",
+    data: response.data?.data || [],
+    errors: response.data?.errors || [],
+    message: response.data?.message,
+  };
+};

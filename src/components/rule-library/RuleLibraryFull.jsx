@@ -31,7 +31,7 @@ import {
   setDeployTarget,
   setScheduleConfig, setScheduleError,
   bulkDeploy, bulkActivate, bulkDeactivate,
-  runSimulation, deployRuleToEnv,
+  runSimulation, deployRuleToEnv, createSchedules,
   selectFilteredRules, selectStats,
 } from "../../features/rules/rulesSlice";
 import {
@@ -1704,19 +1704,83 @@ function ConfirmModal() {
 }
 
 // ─── Schedule Modal ────────────────────────────────────────────────────────────
+function kolkataDateTimeParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value || "";
+  return {
+    fromDate: `${get("year")}-${get("month")}-${get("day")}`,
+    runTime: `${get("hour")}:${get("minute")}`,
+  };
+}
+
 function ScheduleModal() {
   const dispatch = useAppDispatch();
-  const { modalType, selected, scheduleConfig, scheduleError, deployEnvs } = useAppSelector((s) => s.rules);
+  const { modalType, selected, scheduleConfig, scheduleError, scheduleLoading, deployEnvs } = useAppSelector((s) => s.rules);
   if (modalType !== "SCHEDULE") return null;
 
-  const dateError = scheduleConfig.fromDate && scheduleConfig.toDate &&
-    new Date(scheduleConfig.toDate) < new Date(scheduleConfig.fromDate);
+  const isOneTime = scheduleConfig.type === "ONE_TIME";
+
+  const handleScheduleNow = () => {
+    const { fromDate, runTime } = kolkataDateTimeParts();
+    dispatch(setScheduleConfig({ fromDate, runTime, scheduleNow: true }));
+  };
 
   const handleCreate = () => {
-    if (dateError) { dispatch(setScheduleError("End date must be after start date.")); return; }
-    if (!scheduleConfig.environment) { dispatch(setScheduleError("Please select a target environment.")); return; }
-    console.info("Schedule created:", { ids: selected, config: scheduleConfig });
-    dispatch(closeModal());
+    if (!scheduleConfig.environment) {
+      dispatch(setScheduleError("Please select a target environment."));
+      return;
+    }
+    if (isOneTime) {
+      const scheduleNow = !!scheduleConfig.scheduleNow;
+      if (!scheduleNow) {
+        if (!scheduleConfig.fromDate) {
+          dispatch(setScheduleError("Please select a run date."));
+          return;
+        }
+        if (!scheduleConfig.runTime) {
+          dispatch(setScheduleError("Please select a run time."));
+          return;
+        }
+        const runAt = `${scheduleConfig.fromDate}T${scheduleConfig.runTime}:00`;
+        const runAtDate = new Date(runAt);
+        if (Number.isNaN(runAtDate.getTime())) {
+          dispatch(setScheduleError("Invalid date/time."));
+          return;
+        }
+        if (runAtDate.getTime() <= Date.now()) {
+          dispatch(setScheduleError("Run date/time must be in the future (or use Schedule Now)."));
+          return;
+        }
+        dispatch(createSchedules({
+          ruleIds: selected,
+          environment: scheduleConfig.environment,
+          runAt,
+          scheduleType: "ONE_TIME",
+          scheduleNow: false,
+        }));
+        return;
+      }
+
+      // Schedule Now — backend stamps Asia/Kolkata "now" so it is immediately due
+      const { fromDate, runTime } = kolkataDateTimeParts();
+      dispatch(createSchedules({
+        ruleIds: selected,
+        environment: scheduleConfig.environment,
+        runAt: `${fromDate}T${runTime}:00`,
+        scheduleType: "ONE_TIME",
+        scheduleNow: true,
+      }));
+      return;
+    }
+    dispatch(setScheduleError("Recurring schedules are not available yet."));
   };
 
   const envOpts = deployEnvs.length ? deployEnvs : [
@@ -1729,11 +1793,10 @@ function ScheduleModal() {
     <Modal onClose={() => dispatch(closeModal())} width="max-w-lg">
       <div className="px-6 pt-5 pb-4 border-b border-white/8">
         <h2 className="text-[15px] font-semibold text-[var(--text)]">Schedule Rule Action</h2>
-        <p className="text-xs text-[var(--muted)] mt-0.5">Configure automated scheduling for selected rule(s)</p>
+        <p className="text-xs text-[var(--muted)] mt-0.5">Configure automated scheduling for selected rule(s) · Asia/Kolkata</p>
       </div>
 
       <div className="px-6 py-5 space-y-5">
-        {/* Selected rules pills */}
         <div className="p-3.5 rounded-xl border border-white/8 bg-white/[0.025]">
           <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">Selected Rules</p>
           <div className="flex flex-wrap gap-1.5">
@@ -1743,18 +1806,28 @@ function ScheduleModal() {
           </div>
         </div>
 
-        {/* Type */}
         <div>
           <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">Schedule Type</p>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { val: "ONE_TIME",  Icon: Clock,         label: "One-Time",  sub: "Execute once" },
-              { val: "RECURRING", Icon: ArrowsClockwise, label: "Recurring", sub: "Regular intervals" },
+              { val: "ONE_TIME",  Icon: Clock,         label: "One-Time",  sub: "Execute once at a set time" },
+              { val: "RECURRING", Icon: ArrowsClockwise, label: "Recurring", sub: "Coming soon" },
             ].map(({ val, Icon, label, sub }) => {
               const sel = scheduleConfig.type === val;
+              const disabled = val === "RECURRING";
               return (
-                <button key={val} onClick={() => dispatch(setScheduleConfig({ type: val }))}
-                  className={`p-3.5 rounded-xl border text-left transition-all ${sel ? "border-[var(--primary)] bg-[var(--primary)]/10" : "border-white/8 hover:border-white/15 hover:bg-white/[0.025]"}`}
+                <button
+                  key={val}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => !disabled && dispatch(setScheduleConfig({ type: val }))}
+                  className={`p-3.5 rounded-xl border text-left transition-all ${
+                    disabled
+                      ? "border-white/5 opacity-45 cursor-not-allowed"
+                      : sel
+                        ? "border-[var(--primary)] bg-[var(--primary)]/10"
+                        : "border-white/8 hover:border-white/15 hover:bg-white/[0.025]"
+                  }`}
                 >
                   <Icon size={17} className={sel ? "text-[var(--primary)]" : "text-[var(--muted)]"} />
                   <p className={`text-xs font-semibold mt-1.5 ${sel ? "text-[var(--text)]" : "text-[var(--muted)]"}`}>{label}</p>
@@ -1765,7 +1838,6 @@ function ScheduleModal() {
           </div>
         </div>
 
-        {/* Environment */}
         <div>
           <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">Target Environment</label>
           <select
@@ -1778,30 +1850,56 @@ function ScheduleModal() {
           </select>
         </div>
 
-        {/* Dates */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">From Date</label>
-            <input type="date" value={scheduleConfig.fromDate}
-              onChange={(e) => dispatch(setScheduleConfig({ fromDate: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
-            />
+        {isOneTime && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">Run At (Asia/Kolkata)</p>
+              <button
+                type="button"
+                onClick={handleScheduleNow}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                  scheduleConfig.scheduleNow
+                    ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                    : "border border-white/10 text-[var(--text)] hover:bg-white/5"
+                }`}
+              >
+                <Clock size={12} weight="bold" /> Schedule Now
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">Run Date</label>
+                <input
+                  type="date"
+                  value={scheduleConfig.fromDate}
+                  onChange={(e) => dispatch(setScheduleConfig({ fromDate: e.target.value, scheduleNow: false }))}
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">Run Time</label>
+                <input
+                  type="time"
+                  value={scheduleConfig.runTime || ""}
+                  onChange={(e) => dispatch(setScheduleConfig({ runTime: e.target.value, scheduleNow: false }))}
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--card)] border border-white/10 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]"
+                />
+              </div>
+            </div>
+            {scheduleConfig.scheduleNow && (
+              <p className="text-[11px] text-purple-300/90 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
+                Schedule Now selected — date/time filled with current Asia/Kolkata time. Create will make this run immediately due.
+              </p>
+            )}
           </div>
-          <div>
-            <label className="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1.5">To Date</label>
-            <input type="date" value={scheduleConfig.toDate}
-              onChange={(e) => dispatch(setScheduleConfig({ toDate: e.target.value }))}
-              className={`w-full px-3 py-2 rounded-lg bg-[var(--card)] border ${dateError ? "border-red-500" : "border-white/10"} text-sm text-[var(--text)] focus:outline-none focus:border-[var(--primary)]`}
-            />
-          </div>
-        </div>
-        {(dateError || scheduleError) && (
+        )}
+
+        {scheduleError && (
           <p className="text-xs text-red-400 flex items-center gap-1">
-            <Warning size={12} />{dateError ? "End date must be after start date." : scheduleError}
+            <Warning size={12} />{scheduleError}
           </p>
         )}
 
-        {/* Summary */}
         <div className="p-3.5 rounded-xl bg-[var(--primary)]/10 border border-[var(--primary)]/20">
           <div className="flex items-center gap-1.5 mb-2">
             <CalendarCheck size={13} className="text-[var(--primary)]" />
@@ -1809,19 +1907,59 @@ function ScheduleModal() {
           </div>
           <div className="space-y-0.5 text-xs">
             <p><span className="text-[var(--muted)]">Rules: </span><span className="font-semibold text-[var(--text)]">{selected.length} selected</span></p>
-            <p><span className="text-[var(--muted)]">Type: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.type === "ONE_TIME" ? "One-Time" : "Recurring"}</span></p>
+            <p><span className="text-[var(--muted)]">Type: </span><span className="font-semibold text-[var(--text)]">One-Time</span></p>
             {scheduleConfig.environment && <p><span className="text-[var(--muted)]">Env: </span><span className="font-semibold text-[var(--text)]">{scheduleConfig.environment}</span></p>}
+            {scheduleConfig.fromDate && scheduleConfig.runTime && (
+              <p>
+                <span className="text-[var(--muted)]">Runs at: </span>
+                <span className="font-semibold text-[var(--text)]">
+                  {scheduleConfig.fromDate} {scheduleConfig.runTime} IST
+                  {scheduleConfig.scheduleNow ? " (now)" : ""}
+                </span>
+              </p>
+            )}
+            <p className="text-[10px] text-[var(--muted)] mt-1.5">
+              At the scheduled time the rule&apos;s OData endpoint will run and detected anomalies will be stored.
+            </p>
           </div>
         </div>
       </div>
 
       <div className="px-6 pb-5 flex gap-2">
-        <button onClick={handleCreate}
-          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white text-sm font-semibold transition-all shadow-sm"
+        <button
+          onClick={handleCreate}
+          disabled={scheduleLoading}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-b from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white text-sm font-semibold transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <CalendarCheck size={15} /> Create Schedule
+          {scheduleLoading ? <CircleNotch size={15} className="animate-spin" /> : <CalendarCheck size={15} />}
+          Create Schedule
         </button>
         <button onClick={() => dispatch(closeModal())} className="px-4 py-2.5 rounded-xl border border-white/10 text-[var(--muted)] text-sm hover:bg-white/5 hover:text-[var(--text)] transition-colors">Cancel</button>
+      </div>
+    </Modal>
+  );
+}
+
+function ScheduleSuccessModal() {
+  const dispatch = useAppDispatch();
+  const msg = useAppSelector((s) => s.rules.scheduleSuccessMsg);
+  if (!msg) return null;
+  return (
+    <Modal onClose={() => dispatch(closeModal())} width="max-w-sm">
+      <div className="px-6 pt-7 pb-6 text-center space-y-5">
+        <div className="w-14 h-14 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mx-auto">
+          <CheckCircle size={28} weight="fill" className="text-emerald-400" />
+        </div>
+        <div>
+          <p className="text-[15px] font-semibold text-[var(--text)]">Schedule created</p>
+          <p className="mt-2 text-[12px] text-[var(--muted)]">{msg}</p>
+        </div>
+        <button
+          onClick={() => dispatch(closeModal())}
+          className="w-full py-2.5 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white text-sm font-semibold transition-all"
+        >
+          Done
+        </button>
       </div>
     </Modal>
   );
@@ -1910,6 +2048,7 @@ export default function RuleLibraryFull({ onProcessRule, isProcessingRule = fals
       {simStep > 0                                                                       && <SimulationModal />}
       {["CONFIRM_DEPLOY","CONFIRM_ACTIVATE","CONFIRM_DEACTIVATE"].includes(modalType)    && <ConfirmModal />}
       {modalType === "SCHEDULE"                                                          && <ScheduleModal />}
+      {modalType === "SCHEDULE_SUCCESS"                                                  && <ScheduleSuccessModal />}
       {["SIM_GATE","SCHEDULE_GATE"].includes(modalType)                                 && <GateModal />}
     </div>
   );
