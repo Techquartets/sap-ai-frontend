@@ -272,191 +272,7 @@ export const fetchCaseDetailAPI = async (id) => {
     }
 
     const c = apiData.data;
-
-    // UI-compatible transformed object
-    const transformedCase = {
-      id: c.caseId,
-      caseId: c.caseId,
-      riskScore: c.riskScore || 0,
-      title: `${c.vendor || c.vendorName || "SAP document"} - ${c.document || c.caseId}`,
-      ruleName: c.ruleName || "SAP Detection Rule",
-      ruleId: c.ruleId || "",
-      environment: "SAP",
-      status: c.status || c.caseStatus || (c.reviewed ? "Reviewed" : "New"),
-      closureStatus: c.closureStatus || null,
-      assignee: c.assignee || c.reviewedBy || "Unassigned",
-      createdAt: c.detectedAt,
-
-      detail: {
-        aiSummary: {
-          confidence: c.riskScore || 0,
-          recommendation:
-            c.riskScore >= 80 ? "escalate" : "investigate",
-          summary:
-            "Potential duplicate invoice detected based on invoice comparison and vendor validation.",
-          keyFindings: [
-            `Original Invoice: ${c.raw?.OriginalInvoiceDoc || "N/A"}`,
-            `Duplicate Invoice: ${c.raw?.DuplicateInvoiceDoc || "N/A"}`,
-            `Vendor: ${c.vendor || "N/A"}`,
-            `Amount: ${c.amount?.value || 0} ${
-              c.amount?.currency || ""
-            }`,
-          ],
-          riskAssessment:
-            c.riskLevel === "HIGH"
-              ? "High probability duplicate invoice fraud."
-              : "Requires investigator review.",
-        },
-
-        financialImpact: {
-          potentialLoss: c.amount?.value || 0,
-          recoveryProbability:
-            c.riskLevel === "HIGH" ? 25 : 70,
-          estimatedRecovery:
-            (c.amount?.value || 0) *
-            (c.riskLevel === "HIGH" ? 0.25 : 0.7),
-        },
-
-        transaction: {
-          documentNumber: c.document || "N/A",
-          amount: `${c.amount?.value || 0} ${
-            c.amount?.currency || ""
-          }`,
-          postingDate: c.raw?.OriginalPostingDate || "N/A",
-          documentDate: c.raw?.OriginalDocumentDate || "N/A",
-          companyCode: c.raw?.CompanyCode || "N/A",
-          fiscalYearPeriod: c.raw?.FiscalYear || "N/A",
-          reference: c.transactionId || "N/A",
-          headerText: c.raw?.OriginalHeaderText || "",
-        },
-
-        customerDetails: {
-          id: c.vendor || "N/A",
-          name: c.vendor || "N/A",
-          accountGroup: "Vendor",
-          country: "N/A",
-          city: "N/A",
-          createdDate: "N/A",
-          changedDate: "N/A",
-          paymentTerms: "N/A",
-          bankAccount: "N/A",
-        },
-
-        riskIndicators: [
-          {
-            label: "Financial Risk",
-            score: c.riskScore || 0,
-            bullets: [
-              `Invoice Amount: ${c.amount?.value || 0} ${
-                c.amount?.currency || ""
-              }`,
-              `Risk Level: ${c.riskLevel || "UNKNOWN"}`,
-            ],
-          },
-        ],
-
-        behavioralPatterns: [
-          {
-            name: "Duplicate Invoice Submission",
-            severity: c.riskLevel?.toLowerCase() || "medium",
-            frequency: "Detected Once",
-            last: c.detectedAt || "N/A",
-          },
-        ],
-
-        complianceIssues: [
-          {
-            law: "Internal Finance Policy",
-            issue: "Potential duplicate invoice payment",
-            severity: c.riskLevel?.toLowerCase() || "medium",
-            penalty: "Manual review required",
-          },
-        ],
-
-        networkAnalysis: [
-          {
-            entityId: c.vendor || "N/A",
-            type: "Vendor",
-            relationship: "Invoice Creator",
-            riskLevel: c.riskLevel?.toLowerCase() || "medium",
-          },
-        ],
-
-        anomalyIndicators: [
-          {
-            name: "Duplicate Invoice",
-            severity: c.riskLevel?.toLowerCase() || "medium",
-            desc: `Duplicate invoice detected between ${
-              c.raw?.OriginalInvoiceDoc || "N/A"
-            } and ${
-              c.raw?.DuplicateInvoiceDoc || "N/A"
-            }`,
-          },
-        ],
-
-        relatedTransactions: [
-          {
-            docId: c.raw?.OriginalInvoiceDoc || "N/A",
-            type: "Original Invoice",
-            date: c.raw?.OriginalDocumentDate || "N/A",
-            amount: `${c.amount?.value || 0} ${
-              c.amount?.currency || ""
-            }`,
-            status: c.raw?.OriginalStatus || "N/A",
-          },
-          {
-            docId: c.raw?.DuplicateInvoiceDoc || "N/A",
-            type: "Duplicate Invoice",
-            date: c.raw?.DuplicateDocumentDate || "N/A",
-            amount: `${c.amount?.value || 0} ${
-              c.amount?.currency || ""
-            }`,
-            status: c.raw?.DuplicateStatus || "N/A",
-          },
-        ],
-
-        auditTrail: [
-          {
-            event: "Case Created",
-            timestamp: c.detectedAt || "N/A",
-            by: "System",
-            desc:
-              "Automatic duplicate invoice detection triggered",
-          },
-        ],
-
-        attachments: [],
-
-        evidence: [
-          `Vendor Code: ${c.vendorCode || "N/A"}`,
-          `Transaction ID: ${c.transactionId || "N/A"}`,
-          `SAP Module: ${c.sapModule || "N/A"}`,
-          `Risk Level: ${c.riskLevel || "N/A"}`,
-        ],
-
-        aiRecommendations: [
-          "Review duplicate invoices",
-          "Validate vendor payments",
-          "Check approval workflow",
-          "Verify posting dates",
-        ],
-        ruleInfo: {
-          ruleName: "Duplicate Invoice Check",
-          ruleId: c.ruleId || "RULE-DUP-001",
-          environment: "SAP",
-          detectionTime: c.detectedAt || "N/A",
-        },
-        userInfo: {
-          userId: c.reviewedBy || "SYSTEM",
-          userName: c.reviewedBy || "System User",
-          role: "Fraud Analyst",
-          department: "Finance",
-          location: "N/A",
-          lastLogin: c.detectedAt || "N/A",
-          ipAddress: "N/A",
-        },
-      },
-    };
+    const transformedCase = buildCaseDetailFromApi(c);
 
     // SAFE FALLBACKS
     const d = transformedCase.detail;
@@ -500,20 +316,493 @@ export const fetchCaseDetailAPI = async (id) => {
     d.attachments = d.attachments || [];
     d.aiRecommendations = d.aiRecommendations || [];
     d.evidence = d.evidence || [];
+    d.sapFields = d.sapFields || [];
+    d.transactionFields = d.transactionFields || [];
 
     return {
       success: true,
       data: transformedCase,
     };
   } catch (error) {
-    console.error("fetchCaseDetailAPI error:", error);
-
     return {
       success: false,
-      error: error.message || "Failed to fetch case detail",
+      error: error?.response?.data?.message || error.message || "Failed to load case",
     };
   }
 };
+
+/** Humanize SAP field names: PurchaseOrder → Purchase Order */
+function labelize(key) {
+  return String(key)
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pickRaw(raw, keys, fallback = null) {
+  if (!raw || typeof raw !== "object") return fallback;
+  for (const key of keys) {
+    const value = raw[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return fallback;
+}
+
+function formatAmount(c) {
+  const value = c.amount?.value ?? c.amount ?? 0;
+  const currency = c.amount?.currency || c.currency || "";
+  return `${value} ${currency}`.trim();
+}
+
+function resolveCurrency(c, raw = {}) {
+  return (
+    c.amount?.currency ||
+    c.currency ||
+    pickRaw(raw, ["Currency", "DocumentCurrency", "waers"], "INR")
+  );
+}
+
+/** Prefer real SAP dates when stored detectedAt is epoch garbage (1970). */
+function resolveDisplayTimestamp(c, raw = {}) {
+  const stored = c.detectedAt || c.detected_at || null;
+  const looksBad =
+    !stored ||
+    String(stored).startsWith("1970-") ||
+    String(stored).startsWith("1969-");
+
+  if (!looksBad) return stored;
+
+  const fromRaw = pickRaw(raw, [
+    "ReleaseDate",
+    "PODate",
+    "LastChangedDate",
+    "DocumentDate",
+    "PostingDate",
+    "OriginalDocumentDate",
+  ]);
+  if (fromRaw) {
+    // Date-only SAP fields → ISO-ish display
+    const text = String(fromRaw).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00`;
+    return text;
+  }
+  return stored || "N/A";
+}
+
+function detectCaseKind(raw) {
+  if (!raw || typeof raw !== "object") return "generic";
+  if (raw.OriginalInvoiceDoc || raw.DuplicateInvoiceDoc) return "duplicate_invoice";
+  if (raw.PurchaseOrder && (raw.CreatedBy || raw.ReleasedBy)) return "po_creator_approver";
+  if (raw.PurchaseOrder || raw.POLineItem) return "purchase_order";
+  return "generic";
+}
+
+/**
+ * Build case investigation detail from backend /sap/cases/:id payload.
+ * Narratives and field lists follow the OData `raw` shape — not a fixed duplicate-invoice template.
+ */
+export function buildCaseDetailFromApi(c) {
+  const raw = c.raw && typeof c.raw === "object" ? c.raw : {};
+  const kind = detectCaseKind(raw);
+  const riskLevel = (c.riskLevel || "MEDIUM").toUpperCase();
+  const sev = riskLevel.toLowerCase();
+  const amountStr = formatAmount(c);
+  const currency = resolveCurrency(c, raw);
+  const displayAt = resolveDisplayTimestamp(c, raw);
+  const ruleName = c.ruleName || "SAP Detection Rule";
+  const ruleId = c.ruleId || "";
+  const document =
+    c.document ||
+    pickRaw(raw, ["PurchaseOrder", "OriginalInvoiceDoc", "AccountingDocument", "DocumentNumber"], c.caseId);
+  const vendorName = c.vendor || c.vendorName || pickRaw(raw, ["VendorName", "SupplierName"], "Unknown");
+  const vendorCode = c.vendorCode || pickRaw(raw, ["Vendor", "VendorCode", "Supplier"], "");
+
+  // Prefer important SAP keys first, then remaining raw keys
+  const preferredOrder = [
+    "PurchaseOrder",
+    "POLineItem",
+    "ChangeDocNumber",
+    "CreatedBy",
+    "ReleasedBy",
+    "ReleaseDate",
+    "ReleaseTime",
+    "ReleaseTCode",
+    "ReleaseStatus",
+    "ReleaseIndicator",
+    "SoDCriticality",
+    "Vendor",
+    "VendorName",
+    "NetValue",
+    "Currency",
+    "PODate",
+    "CompanyCode",
+    "PurchasingOrg",
+    "PurchasingGroup",
+    "Material",
+    "MaterialDescription",
+    "Quantity",
+    "Plant",
+    "OriginalInvoiceDoc",
+    "DuplicateInvoiceDoc",
+    "OriginalDocumentDate",
+    "DuplicateDocumentDate",
+  ];
+  const seen = new Set();
+  const sapFields = [];
+  for (const key of [...preferredOrder, ...Object.keys(raw)]) {
+    if (seen.has(key) || !(key in raw)) continue;
+    seen.add(key);
+    const value = raw[key];
+    if (value === undefined || value === null || value === "") continue;
+    if (typeof value === "object") continue;
+    sapFields.push({ key, label: labelize(key), value: String(value) });
+  }
+
+  let summary;
+  let keyFindings;
+  let riskAssessment;
+  let patternName;
+  let complianceIssue;
+  let alertName;
+  let alertDesc;
+  let recommendations;
+  let auditDesc;
+  let relatedTransactions;
+  let networkAnalysis;
+  let transactionFields;
+
+  if (kind === "po_creator_approver" || kind === "purchase_order") {
+    const po = pickRaw(raw, ["PurchaseOrder"], document);
+    const createdBy = pickRaw(raw, ["CreatedBy"], "N/A");
+    const releasedBy = pickRaw(raw, ["ReleasedBy"], "N/A");
+    const sameUser = createdBy !== "N/A" && createdBy === releasedBy;
+
+    summary = sameUser
+      ? `Segregation of duties risk: purchase order ${po} was created and released by the same user (${createdBy}).`
+      : `Purchase order ${po} flagged by rule ${ruleName}. Created by ${createdBy}, released by ${releasedBy}.`;
+
+    keyFindings = [
+      `Purchase Order: ${po}`,
+      `Created By: ${createdBy}`,
+      `Released By: ${releasedBy}`,
+      `Vendor: ${vendorName}${vendorCode ? ` (${vendorCode})` : ""}`,
+      `Amount: ${amountStr}`,
+      `Release TCode: ${pickRaw(raw, ["ReleaseTCode"], "N/A")}`,
+      `SoD Criticality: ${pickRaw(raw, ["SoDCriticality"], "N/A")}`,
+    ];
+
+    riskAssessment = sameUser
+      ? "High probability SoD violation — creator and approver are the same user."
+      : riskLevel === "HIGH" || riskLevel === "CRITICAL"
+        ? "Elevated risk on PO release workflow; investigator review recommended."
+        : "Requires investigator review of PO creator/approver controls.";
+
+    patternName = "Same Creator and Approver";
+    complianceIssue = "Potential segregation of duties (SoD) violation on PO create/release";
+    alertName = "PO Creator / Approver Conflict";
+    alertDesc = `PO ${po}: CreatedBy=${createdBy}, ReleasedBy=${releasedBy}`;
+    recommendations = [
+      "Verify creator and approver are different users",
+      "Review release strategy and SoD configuration",
+      "Validate PO value and vendor",
+      "Check change documents for ME29N / release history",
+    ];
+    auditDesc = `Automatic detection triggered for rule ${ruleName}`;
+
+    relatedTransactions = [
+      {
+        docId: po,
+        type: "Purchase Order",
+        date: pickRaw(raw, ["PODate", "ReleaseDate", "LastChangedDate"], "N/A"),
+        amount: amountStr,
+        status: pickRaw(raw, ["ReleaseStatus", "ReleaseIndicator"], "N/A"),
+      },
+      {
+        docId: pickRaw(raw, ["ChangeDocNumber", "POLineItem"], "N/A"),
+        type: pickRaw(raw, ["ChangeDocNumber"]) ? "Change Document" : "PO Line Item",
+        date: pickRaw(raw, ["ReleaseDate", "LastChangedDate"], "N/A"),
+        amount: amountStr,
+        status: pickRaw(raw, ["ReleaseStatusAfter", "ReleaseStatus"], "N/A"),
+      },
+    ];
+
+    networkAnalysis = [
+      {
+        entityId: createdBy,
+        type: "SAP User",
+        relationship: "PO Creator",
+        riskLevel: sev,
+      },
+      {
+        entityId: releasedBy,
+        type: "SAP User",
+        relationship: "PO Approver / Releaser",
+        riskLevel: sev,
+      },
+      {
+        entityId: vendorName,
+        type: "Vendor",
+        relationship: "PO Vendor",
+        riskLevel: sev,
+      },
+    ];
+
+    transactionFields = [
+      { label: "Purchase Order", value: po, mono: true },
+      { label: "PO Line Item", value: pickRaw(raw, ["POLineItem"], "N/A"), mono: true },
+      { label: "Amount", value: amountStr },
+      { label: "Currency", value: pickRaw(raw, ["Currency"], c.amount?.currency || "N/A") },
+      { label: "PO Date", value: pickRaw(raw, ["PODate"], "N/A") },
+      { label: "Release Date", value: pickRaw(raw, ["ReleaseDate"], "N/A") },
+      { label: "Company Code", value: pickRaw(raw, ["CompanyCode"], "N/A") },
+      { label: "Created By", value: createdBy, mono: true },
+      { label: "Released By", value: releasedBy, mono: true },
+      { label: "Release TCode", value: pickRaw(raw, ["ReleaseTCode"], "N/A"), mono: true },
+      { label: "Plant", value: pickRaw(raw, ["Plant"], "N/A") },
+      { label: "Material", value: pickRaw(raw, ["Material", "MaterialDescription"], "N/A") },
+    ];
+  } else if (kind === "duplicate_invoice") {
+    const original = pickRaw(raw, ["OriginalInvoiceDoc"], "N/A");
+    const duplicate = pickRaw(raw, ["DuplicateInvoiceDoc"], "N/A");
+
+    summary =
+      "Potential duplicate invoice detected based on invoice comparison and vendor validation.";
+    keyFindings = [
+      `Original Invoice: ${original}`,
+      `Duplicate Invoice: ${duplicate}`,
+      `Vendor: ${vendorName}`,
+      `Amount: ${amountStr}`,
+    ];
+    riskAssessment =
+      riskLevel === "HIGH" || riskLevel === "CRITICAL"
+        ? "High probability duplicate invoice fraud."
+        : "Requires investigator review.";
+    patternName = "Duplicate Invoice Submission";
+    complianceIssue = "Potential duplicate invoice payment";
+    alertName = "Duplicate Invoice";
+    alertDesc = `Duplicate invoice detected between ${original} and ${duplicate}`;
+    recommendations = [
+      "Review duplicate invoices",
+      "Validate vendor payments",
+      "Check approval workflow",
+      "Verify posting dates",
+    ];
+    auditDesc = "Automatic duplicate invoice detection triggered";
+    relatedTransactions = [
+      {
+        docId: original,
+        type: "Original Invoice",
+        date: pickRaw(raw, ["OriginalDocumentDate"], "N/A"),
+        amount: amountStr,
+        status: pickRaw(raw, ["OriginalStatus"], "N/A"),
+      },
+      {
+        docId: duplicate,
+        type: "Duplicate Invoice",
+        date: pickRaw(raw, ["DuplicateDocumentDate"], "N/A"),
+        amount: amountStr,
+        status: pickRaw(raw, ["DuplicateStatus"], "N/A"),
+      },
+    ];
+    networkAnalysis = [
+      {
+        entityId: vendorName,
+        type: "Vendor",
+        relationship: "Invoice Creator",
+        riskLevel: sev,
+      },
+    ];
+    transactionFields = [
+      { label: "Document Number", value: document, mono: true },
+      { label: "Amount", value: amountStr },
+      { label: "Posting Date", value: pickRaw(raw, ["OriginalPostingDate", "PostingDate"], "N/A") },
+      { label: "Document Date", value: pickRaw(raw, ["OriginalDocumentDate", "DocumentDate"], "N/A") },
+      { label: "Company Code", value: pickRaw(raw, ["CompanyCode"], "N/A") },
+      { label: "Fiscal Year/Period", value: pickRaw(raw, ["FiscalYear"], "N/A") },
+      { label: "Reference", value: c.transactionId || "N/A", mono: true },
+      { label: "Header Text", value: pickRaw(raw, ["OriginalHeaderText", "HeaderText"], "—") },
+    ];
+  } else {
+    summary = `Anomaly detected by rule ${ruleName} for document ${document}.`;
+    keyFindings = sapFields.slice(0, 8).map((f) => `${f.label}: ${f.value}`);
+    if (!keyFindings.length) {
+      keyFindings = [
+        `Document: ${document}`,
+        `Vendor: ${vendorName}`,
+        `Amount: ${amountStr}`,
+        `Risk Level: ${riskLevel}`,
+      ];
+    }
+    riskAssessment = "Requires investigator review of SAP source fields.";
+    patternName = "SAP Rule Detection";
+    complianceIssue = `Flagged by ${ruleName}`;
+    alertName = ruleName;
+    alertDesc = `Document ${document} matched detection rule ${ruleId || ruleName}`;
+    recommendations = [
+      "Review SAP source fields",
+      "Validate business partner and amount",
+      "Confirm rule thresholds and parameters",
+      "Check related change documents",
+    ];
+    auditDesc = `Automatic detection triggered for rule ${ruleName}`;
+    relatedTransactions = [
+      {
+        docId: document,
+        type: "SAP Document",
+        date: pickRaw(raw, ["PODate", "DocumentDate", "PostingDate", "ReleaseDate"], "N/A"),
+        amount: amountStr,
+        status: riskLevel,
+      },
+    ];
+    networkAnalysis = [
+      {
+        entityId: vendorName,
+        type: "Vendor",
+        relationship: "Related Party",
+        riskLevel: sev,
+      },
+    ];
+    transactionFields = [
+      { label: "Document Number", value: document, mono: true },
+      { label: "Amount", value: amountStr },
+      { label: "Company Code", value: pickRaw(raw, ["CompanyCode"], "N/A") },
+      { label: "Reference", value: c.transactionId || "N/A", mono: true },
+      ...sapFields.slice(0, 8).map((f) => ({ label: f.label, value: f.value, mono: false })),
+    ];
+  }
+
+  // Backward-compatible transaction object (legacy UI keys)
+  const transaction = {
+    documentNumber: document,
+    amount: amountStr,
+    postingDate: pickRaw(raw, ["ReleaseDate", "PostingDate", "OriginalPostingDate", "PODate"], "N/A"),
+    documentDate: pickRaw(raw, ["PODate", "DocumentDate", "OriginalDocumentDate"], "N/A"),
+    companyCode: pickRaw(raw, ["CompanyCode"], "N/A"),
+    fiscalYearPeriod: pickRaw(raw, ["FiscalYear"], "N/A"),
+    reference: c.transactionId || "N/A",
+    headerText: pickRaw(raw, ["MaterialDescription", "OriginalHeaderText", "HeaderText"], "—"),
+  };
+
+  return {
+    id: c.caseId,
+    caseId: c.caseId,
+    riskScore: c.riskScore || 0,
+    title: `${vendorName} - ${document}`,
+    ruleName,
+    ruleId,
+    environment: "SAP",
+    status: c.status || c.caseStatus || (c.reviewed ? "Reviewed" : "New"),
+    closureStatus: c.closureStatus || null,
+    assignee: c.assignee || c.reviewedBy || "Unassigned",
+    createdAt: displayAt,
+    detectionKind: kind,
+
+    detail: {
+      description: summary,
+      aiSummary: {
+        confidence: c.riskScore || 0,
+        recommendation: c.riskScore >= 80 ? "escalate" : "investigate",
+        summary,
+        keyFindings,
+        riskAssessment,
+      },
+      financialImpact: {
+        potentialLoss: Number(c.amount?.value ?? 0) || 0,
+        currency,
+        recoveryProbability: riskLevel === "HIGH" || riskLevel === "CRITICAL" ? 25 : 70,
+        estimatedRecovery:
+          (Number(c.amount?.value ?? 0) || 0) *
+          (riskLevel === "HIGH" || riskLevel === "CRITICAL" ? 0.25 : 0.7),
+      },
+      transaction,
+      transactionFields,
+      sapFields,
+      customerDetails: {
+        id: vendorCode || vendorName || "N/A",
+        name: vendorName || "N/A",
+        accountGroup: "Vendor",
+        country: pickRaw(raw, ["Country"], "N/A"),
+        city: pickRaw(raw, ["City"], "N/A"),
+        createdDate: pickRaw(raw, ["PODate", "CreatedDate"], "N/A"),
+        changedDate: pickRaw(raw, ["LastChangedDate", "ChangedDate"], "N/A"),
+        paymentTerms: pickRaw(raw, ["PaymentTerms"], "N/A"),
+        bankAccount: pickRaw(raw, ["BankAccount"], "N/A"),
+      },
+      riskIndicators: [
+        {
+          label: "Financial Risk",
+          score: c.riskScore || 0,
+          bullets: [
+            `Amount: ${amountStr}`,
+            `Risk Level: ${riskLevel}`,
+            kind === "po_creator_approver"
+              ? `CreatedBy / ReleasedBy: ${pickRaw(raw, ["CreatedBy"], "?")} / ${pickRaw(raw, ["ReleasedBy"], "?")}`
+              : `Document: ${document}`,
+          ],
+        },
+      ],
+      behavioralPatterns: [
+        {
+          name: patternName,
+          severity: sev,
+          frequency: "Detected Once",
+          last: displayAt,
+        },
+      ],
+      complianceIssues: [
+        {
+          law: "Internal Control Policy",
+          issue: complianceIssue,
+          severity: sev,
+          penalty: "Manual review required",
+        },
+      ],
+      networkAnalysis,
+      anomalyIndicators: [
+        {
+          name: alertName,
+          severity: sev,
+          desc: alertDesc,
+        },
+      ],
+      relatedTransactions,
+      auditTrail: [
+        {
+          event: "Case Created",
+          timestamp: displayAt,
+          by: "System",
+          desc: auditDesc,
+        },
+      ],
+      attachments: [],
+      evidence: [
+        `Vendor Code: ${vendorCode || "N/A"}`,
+        `Transaction ID: ${c.transactionId || "N/A"}`,
+        `SAP Module: ${c.sapModule || "N/A"}`,
+        `Risk Level: ${riskLevel}`,
+        `Rule: ${ruleName}`,
+        ...sapFields.slice(0, 6).map((f) => `${f.label}: ${f.value}`),
+      ],
+      aiRecommendations: recommendations,
+      ruleInfo: {
+        ruleName,
+        ruleId: ruleId || "N/A",
+        environment: "SAP",
+        detectionTime: displayAt,
+      },
+      userInfo: {
+        userId: pickRaw(raw, ["CreatedBy", "ReleasedBy"], c.reviewedBy || "SYSTEM"),
+        userName: pickRaw(raw, ["CreatedBy", "ReleasedBy"], c.reviewedBy || "System User"),
+        role: kind === "po_creator_approver" ? "PO Creator / Approver" : "Fraud Analyst",
+        department: pickRaw(raw, ["PurchasingGroupName", "PurchasingGroup"], "Finance"),
+        location: pickRaw(raw, ["Plant"], "N/A"),
+        lastLogin: displayAt,
+        ipAddress: "N/A",
+      },
+    },
+  };
+}
 
 export const updateCaseAPI = async (id, payload) => {
   await delay(400);

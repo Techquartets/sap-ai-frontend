@@ -377,8 +377,10 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
                   <div className="grid grid-cols-3 gap-3">
                     <div className="p-4 rounded-xl border border-[var(--border)] bg-white/[0.02]">
                       <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1">POTENTIAL LOSS</p>
-                      <p className="text-xl font-bold text-red-400">${d.financialImpact.potentialLoss.toLocaleString()}</p>
-                      <p className="text-[10px] text-[var(--muted)]">USD</p>
+                      <p className="text-xl font-bold text-red-400">
+                        {Number(d.financialImpact.potentialLoss || 0).toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-[var(--muted)]">{d.financialImpact.currency || "INR"}</p>
                     </div>
                     <div className="p-4 rounded-xl border border-[var(--border)] bg-white/[0.02]">
                       <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1">RECOVERY PROBABILITY</p>
@@ -389,8 +391,12 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
                     </div>
                     <div className="p-4 rounded-xl border border-[var(--border)] bg-white/[0.02]">
                       <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1">ESTIMATED RECOVERY</p>
-                      <p className="text-xl font-bold text-emerald-400">${d.financialImpact.estimatedRecovery.toLocaleString()}</p>
-                      <p className="text-[10px] text-[var(--muted)] mt-1">Based on historical recovery rates</p>
+                      <p className="text-xl font-bold text-emerald-400">
+                        {Number(d.financialImpact.estimatedRecovery || 0).toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-[var(--muted)] mt-1">
+                        {d.financialImpact.currency || "INR"} · based on historical recovery rates
+                      </p>
                     </div>
                   </div>
                 </section>
@@ -458,27 +464,51 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
                 <section>
                   <Sh dot="bg-blue-500" label="Rule Information" />
                   <div className="grid grid-cols-4 gap-3">
-                    <InfoCell label="RULE NAME" value={d.ruleInfo.ruleName} />
-                    <InfoCell label="RULE ID" value={d.ruleInfo.ruleId} mono />
+                    <InfoCell label="RULE NAME" value={d.ruleInfo.ruleName || data.ruleName} />
+                    <InfoCell label="RULE ID" value={d.ruleInfo.ruleId || data.ruleId} mono />
                     <InfoCell label="ENVIRONMENT" value={d.ruleInfo.environment} />
                     <InfoCell label="DETECTION TIME" value={d.ruleInfo.detectionTime} />
                   </div>
                 </section>
 
-                {/* Transaction Details */}
+                {/* Transaction Details — dynamic from API/raw */}
                 <section>
                   <Sh dot="bg-blue-500" label="Transaction Details" />
                   <div className="grid grid-cols-4 gap-3">
-                    <InfoCell label="DOCUMENT NUMBER" value={d.transaction.documentNumber} mono />
-                    <InfoCell label="AMOUNT" value={d.transaction.amount} />
-                    <InfoCell label="POSTING DATE" value={d.transaction.postingDate} />
-                    <InfoCell label="DOCUMENT DATE" value={d.transaction.documentDate} />
-                    <InfoCell label="COMPANY CODE" value={d.transaction.companyCode} />
-                    <InfoCell label="FISCAL YEAR/PERIOD" value={d.transaction.fiscalYearPeriod} />
-                    <InfoCell label="REFERENCE" value={d.transaction.reference} mono />
-                    <InfoCell label="HEADER TEXT" value={d.transaction.headerText} cls="col-span-4" />
+                    {(d.transactionFields?.length
+                      ? d.transactionFields
+                      : [
+                          { label: "DOCUMENT NUMBER", value: d.transaction?.documentNumber, mono: true },
+                          { label: "AMOUNT", value: d.transaction?.amount },
+                          { label: "POSTING DATE", value: d.transaction?.postingDate },
+                          { label: "DOCUMENT DATE", value: d.transaction?.documentDate },
+                          { label: "COMPANY CODE", value: d.transaction?.companyCode },
+                          { label: "FISCAL YEAR/PERIOD", value: d.transaction?.fiscalYearPeriod },
+                          { label: "REFERENCE", value: d.transaction?.reference, mono: true },
+                          { label: "HEADER TEXT", value: d.transaction?.headerText },
+                        ]
+                    ).map((f, i) => (
+                      <InfoCell
+                        key={`${f.label}-${i}`}
+                        label={f.label}
+                        value={f.value ?? "N/A"}
+                        mono={!!f.mono}
+                      />
+                    ))}
                   </div>
                 </section>
+
+                {/* SAP Source Fields from OData raw */}
+                {d.sapFields?.length > 0 && (
+                  <section>
+                    <Sh dot="bg-purple-500" label={`SAP Source Fields (${d.sapFields.length})`} />
+                    <div className="grid grid-cols-4 gap-3">
+                      {d.sapFields.map((f) => (
+                        <InfoCell key={f.key} label={f.label} value={f.value} mono />
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 {/* User Info */}
                 <section>
@@ -494,9 +524,9 @@ export function CaseModal({ caseId, onClose, onUpdate }) {
                   </div>
                 </section>
 
-                {/* Customer Details */}
+                {/* Vendor / Party Details */}
                 <section>
-                  <Sh dot="bg-blue-500" label="Customer Details" />
+                  <Sh dot="bg-blue-500" label="Vendor Details" />
                   <div className="grid grid-cols-4 gap-3">
                     <InfoCell label="ID" value={d.customerDetails.id} mono />
                     <InfoCell label="NAME" value={d.customerDetails.name} cls="col-span-2" />
