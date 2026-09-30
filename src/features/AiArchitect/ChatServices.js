@@ -113,6 +113,18 @@ export function clearChatHistory() {
  *   }
  */
 export async function sendMessage({ message, sessionId, ruleContext }) {
+  const normalizeDynamicParameters = (raw) => {
+    if (!raw) return {};
+    let parsed = raw;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); } catch { return {}; }
+    }
+    if (typeof parsed !== "object") return {};
+    if (Array.isArray(parsed)) return { LIST: parsed };
+    if (parsed.PARAMETERS && typeof parsed.PARAMETERS === "object") return parsed.PARAMETERS;
+    return parsed;
+  };
+
   try {
     const res = await fetch("http://localhost:8000/sap/rule-agent/", {
       method: "POST",
@@ -146,133 +158,56 @@ export async function sendMessage({ message, sessionId, ruleContext }) {
       // reply: removeCodeBlocks(aiText),
       reply: aiText,
 
-      module: detectModule(data.intent),
+      module: data.module || detectModule(data.intent),
 
-      riskScore: estimateRisk(data),
+      riskScore: data.riskScore ?? estimateRisk(data),
 
       cdsCode: data.cdsCode || "",
 
-      threshold: extractAmount(message),
+      cdsCodeFilename: data.cdsCodeFilename || "",
 
-      timeDiff: extractDays(message),
+      cdsBaseinfo: data.cdsBaseinfo || "",
+
+      cdsBaseinfoFilename: data.cdsBaseinfoFilename || "",
+
+      cdsSrvd: data.cdsSrvd || "",
+
+      cdsSrvdFilename: data.cdsSrvdFilename || "",
+
+      cdsSrvdSrvdsrv: data.cdsSrvdSrvdsrv || "",
+
+      cdsSrvdSrvdsrvFilename: data.cdsSrvdSrvdsrvFilename || "",
+
+      cdsSrvb: data.cdsSrvb || "",
+
+      cdsSrvbFilename: data.cdsSrvbFilename || "",
+
+      cdsSrvbXml: data.cdsSrvbXml || "",
+
+      cdsG4ba: data.cdsG4ba || "",
+
+      cdsG4baFilename: data.cdsG4baFilename || "",
+
+      cdsXml: data.cdsXml || "",
+
+      cdsXmlFilename: data.cdsXmlFilename || "",
+
+      dynamicParameters: normalizeDynamicParameters(
+        data.dynamicParameters || data.parameters || data.PARAMETERS || {}
+      ),
+
+      threshold: data.threshold ?? extractAmount(message),
+
+      timeDiff: data.timeDiff ?? extractDays(message),
     };
 
   } catch (err) {
     console.error("❌ Chat API Error:", err);
-
     return {
       type: "info",
       reply: "⚠️ Unable to connect to AI service. Please try again.",
     };
   }
-}
-
-// ─── Mock helpers (DELETE these when Django is connected) ─────────────────────
-
-const SAP_MODULES = {
-  FI: "Financial Accounting (FI)",
-  MM: "Materials Management (MM)",
-  SD: "Sales & Distribution (SD)",
-  CO: "Controlling (CO)",
-  HR: "Human Resources (HR)",
-  PP: "Production Planning (PP)",
-};
-
-function _mockParseRule(text, ruleContext) {
-  const t = text.toLowerCase();
-
-  // Start from ruleContext if in modify mode
-  let module    = ruleContext?.module    || "FI";
-  let threshold = ruleContext?.threshold || 50000;
-  let timeDiff  = ruleContext?.timeDiff  || 7;
-
-  // Module detection
-  if      (t.includes("mm") || t.includes("material") || t.includes("vendor") || t.includes("invoice")) module = "MM";
-  else if (t.includes("sd") || t.includes("sales")    || t.includes("customer") || t.includes("order")) module = "SD";
-  else if (t.includes("hr") || t.includes("payroll")  || t.includes("employee"))                        module = "HR";
-  else if (t.includes("co") || t.includes("budget")   || t.includes("cost"))                            module = "CO";
-  else if (t.includes("pp") || t.includes("production")|| t.includes("bom"))                            module = "PP";
-
-  // Amount extraction
-  const amtM = text.match(/\$?([\d,]+(?:\.\d+)?)(k|m)?/i);
-  if (amtM) {
-    let n = parseFloat(amtM[1].replace(/,/g, ""));
-    if (amtM[2]?.toLowerCase() === "k") n *= 1000;
-    if (amtM[2]?.toLowerCase() === "m") n *= 1_000_000;
-    threshold = Math.round(n);
-  }
-
-  // Days extraction
-  const dayM = text.match(/(\d+)\s*days?/i);
-  if (dayM) timeDiff = parseInt(dayM[1]);
-
-  const riskScore = threshold > 100000 ? 90 : threshold > 50000 ? 75 : threshold > 10000 ? 55 : 40;
-  const moduleName = SAP_MODULES[module] || module;
-  const ts         = Date.now();
-  const viewName   = `Z_ANOMALY_${module}_${ts}`;
-  const sapEntity  = module === "FI" ? "I_JournalEntry"
-    : module === "MM" ? "I_PurchaseOrderItem"
-    : module === "SD" ? "I_SalesOrderItem"
-    : "I_AccountingDocumentItem";
-
-  const cds = `@AbapCatalog.sqlViewName: '${viewName.slice(0, 16)}'
-@AccessControl.authorizationCheck: #CHECK
-@EndUserText.label: 'Anomaly Detection - ${module} Module'
-define view ${viewName} as select from ${sapEntity} {
-  key CompanyCode,
-  key FiscalYear,
-  key AccountingDocument,
-  DocumentDate,
-  PostingDate,
-  AmountInTransactionCurrency,
-  TransactionCurrency,
-  AccountingDocumentType,
-
-  case
-    when AmountInTransactionCurrency > ${threshold}
-      and dats_days_between(DocumentDate, PostingDate) > ${timeDiff}
-    then 'HIGH'
-    when AmountInTransactionCurrency > ${Math.round(threshold * 0.5)}
-    then 'MEDIUM'
-    else 'LOW'
-  end as RiskLevel,
-
-  case
-    when AmountInTransactionCurrency > ${threshold}
-      and dats_days_between(DocumentDate, PostingDate) > ${timeDiff}
-    then 'X'
-    else ''
-  end as AnomalyFlag,
-
-  case
-    when AmountInTransactionCurrency > ${threshold}
-      and dats_days_between(DocumentDate, PostingDate) > ${timeDiff}
-    then ${riskScore}
-    when AmountInTransactionCurrency > ${Math.round(threshold * 0.5)}
-    then ${Math.round(riskScore * 0.6)}
-    else ${Math.round(riskScore * 0.3)}
-  end as RiskScore
-
-} where AmountInTransactionCurrency > ${Math.round(threshold * 0.2)}`;
-
-  return { module, moduleName, threshold, timeDiff, riskScore, cds };
-}
-
-function _mockBuildReply({ module, moduleName, threshold, timeDiff, riskScore }) {
-  const fmt = n => n >= 1000 ? `$${(n / 1000).toFixed(0)}K` : `$${n}`;
-  return `Perfect! I've analyzed your requirements and created a rule for you. Here's what I understood:
-
-📋 **SAP Module**: ${moduleName}
-💰 **Amount Threshold**: ${fmt(threshold)}
-📅 **Time Difference**: ${timeDiff} days between document and posting date
-⚠️ **Risk Score**: ${riskScore}/100
-
-This rule will flag transactions in the ${moduleName} module where the amount exceeds ${fmt(threshold)} and there's more than ${timeDiff} days between the document date and posting date.
-
-I've generated the CDS view code for this rule. Would you like to:
-- **Modify any parameters** (amount, days, risk score)
-- **Add this to your Rule Library**
-- **Test it with a simulation**`;
 }
 
 function detectModule(intent = "") {

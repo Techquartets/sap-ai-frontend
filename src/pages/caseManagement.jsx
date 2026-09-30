@@ -18,9 +18,11 @@ import { useLocation } from "react-router-dom";
 import Sidebar from "../components/layout/Sidebar";
 import Topbar from "../components/layout/Topbar";
 import {
-  fetchCasesAPI, fetchCaseDetailAPI, updateCaseAPI,
+  fetchCaseDetailAPI, updateCaseAPI,
   createTaskAPI, assignCaseAPI, fetchInvestigatorsAPI, TASK_PROCESSORS,
+  fetchAnomaliesListAPI, generateCasesFromRuleAPI,
 } from "../features/cases/casesApi";
+import { fetchRulesAPI } from "../features/rules/rulesBackendAPI";
 import {
   MagnifyingGlass, X, Warning, CircleNotch, CheckCircle,
   Robot, FunnelSimple, FileText, Clock, Users,
@@ -28,6 +30,7 @@ import {
   ListChecks, ArrowCounterClockwise, TrendUp, Plus, Paperclip,
   UserPlus, ArrowRight, CheckFat,
 } from "@phosphor-icons/react";
+import { loadRiskConfigs, resolveRiskLevelByAmount, RISK_CONFIG_STORAGE_KEY } from "../features/cases/riskConfig";
 
 // ─── Style maps ───────────────────────────────────────────────────────────────
 const RISK_COLOR = s => s >= 90 ? "text-red-400" : s >= 75 ? "text-orange-400" : s >= 60 ? "text-yellow-400" : "text-green-400";
@@ -45,6 +48,13 @@ const STATUS_CLS = {
   "Escalated": "bg-red-500/20 text-red-300 border border-red-500/30",
 };
 const ENV_CLS = { STAGING: "text-amber-400", PRODUCTION: "text-red-400", DEVELOPMENT: "text-emerald-400" };
+const RISK_LEVEL_BADGE = {
+  LOW: "bg-green-500/20 text-green-400 border border-green-500/30",
+  MEDIUM: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+  HIGH: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
+  CRITICAL: "bg-red-500/20 text-red-400 border border-red-500/30",
+};
+
 
 // ─── Atoms ────────────────────────────────────────────────────────────────────
 const SevBadge = memo(({ sev }) =>
@@ -169,7 +179,7 @@ function AssignPanel({ caseId, currentUser, onAssign, onClose }) {
 }
 
 // ─── Case Investigation Modal ──────────────────────────────────────────────────
-function CaseModal({ caseId, onClose, onUpdate }) {
+export function CaseModal({ caseId, onClose, onUpdate }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -367,8 +377,10 @@ function CaseModal({ caseId, onClose, onUpdate }) {
                   <div className="grid grid-cols-3 gap-3">
                     <div className="p-4 rounded-xl border border-[var(--border)] bg-white/[0.02]">
                       <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1">POTENTIAL LOSS</p>
-                      <p className="text-xl font-bold text-red-400">${d.financialImpact.potentialLoss.toLocaleString()}</p>
-                      <p className="text-[10px] text-[var(--muted)]">USD</p>
+                      <p className="text-xl font-bold text-red-400">
+                        {Number(d.financialImpact.potentialLoss || 0).toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-[var(--muted)]">{d.financialImpact.currency || "INR"}</p>
                     </div>
                     <div className="p-4 rounded-xl border border-[var(--border)] bg-white/[0.02]">
                       <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1">RECOVERY PROBABILITY</p>
@@ -379,8 +391,12 @@ function CaseModal({ caseId, onClose, onUpdate }) {
                     </div>
                     <div className="p-4 rounded-xl border border-[var(--border)] bg-white/[0.02]">
                       <p className="text-[9px] font-semibold text-[var(--muted)] uppercase tracking-widest mb-1">ESTIMATED RECOVERY</p>
-                      <p className="text-xl font-bold text-emerald-400">${d.financialImpact.estimatedRecovery.toLocaleString()}</p>
-                      <p className="text-[10px] text-[var(--muted)] mt-1">Based on historical recovery rates</p>
+                      <p className="text-xl font-bold text-emerald-400">
+                        {Number(d.financialImpact.estimatedRecovery || 0).toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-[var(--muted)] mt-1">
+                        {d.financialImpact.currency || "INR"} · based on historical recovery rates
+                      </p>
                     </div>
                   </div>
                 </section>
@@ -448,27 +464,51 @@ function CaseModal({ caseId, onClose, onUpdate }) {
                 <section>
                   <Sh dot="bg-blue-500" label="Rule Information" />
                   <div className="grid grid-cols-4 gap-3">
-                    <InfoCell label="RULE NAME" value={d.ruleInfo.ruleName} />
-                    <InfoCell label="RULE ID" value={d.ruleInfo.ruleId} mono />
+                    <InfoCell label="RULE NAME" value={d.ruleInfo.ruleName || data.ruleName} />
+                    <InfoCell label="RULE ID" value={d.ruleInfo.ruleId || data.ruleId} mono />
                     <InfoCell label="ENVIRONMENT" value={d.ruleInfo.environment} />
                     <InfoCell label="DETECTION TIME" value={d.ruleInfo.detectionTime} />
                   </div>
                 </section>
 
-                {/* Transaction Details */}
+                {/* Transaction Details — dynamic from API/raw */}
                 <section>
                   <Sh dot="bg-blue-500" label="Transaction Details" />
                   <div className="grid grid-cols-4 gap-3">
-                    <InfoCell label="DOCUMENT NUMBER" value={d.transaction.documentNumber} mono />
-                    <InfoCell label="AMOUNT" value={d.transaction.amount} />
-                    <InfoCell label="POSTING DATE" value={d.transaction.postingDate} />
-                    <InfoCell label="DOCUMENT DATE" value={d.transaction.documentDate} />
-                    <InfoCell label="COMPANY CODE" value={d.transaction.companyCode} />
-                    <InfoCell label="FISCAL YEAR/PERIOD" value={d.transaction.fiscalYearPeriod} />
-                    <InfoCell label="REFERENCE" value={d.transaction.reference} mono />
-                    <InfoCell label="HEADER TEXT" value={d.transaction.headerText} cls="col-span-4" />
+                    {(d.transactionFields?.length
+                      ? d.transactionFields
+                      : [
+                          { label: "DOCUMENT NUMBER", value: d.transaction?.documentNumber, mono: true },
+                          { label: "AMOUNT", value: d.transaction?.amount },
+                          { label: "POSTING DATE", value: d.transaction?.postingDate },
+                          { label: "DOCUMENT DATE", value: d.transaction?.documentDate },
+                          { label: "COMPANY CODE", value: d.transaction?.companyCode },
+                          { label: "FISCAL YEAR/PERIOD", value: d.transaction?.fiscalYearPeriod },
+                          { label: "REFERENCE", value: d.transaction?.reference, mono: true },
+                          { label: "HEADER TEXT", value: d.transaction?.headerText },
+                        ]
+                    ).map((f, i) => (
+                      <InfoCell
+                        key={`${f.label}-${i}`}
+                        label={f.label}
+                        value={f.value ?? "N/A"}
+                        mono={!!f.mono}
+                      />
+                    ))}
                   </div>
                 </section>
+
+                {/* SAP Source Fields from OData raw */}
+                {d.sapFields?.length > 0 && (
+                  <section>
+                    <Sh dot="bg-purple-500" label={`SAP Source Fields (${d.sapFields.length})`} />
+                    <div className="grid grid-cols-4 gap-3">
+                      {d.sapFields.map((f) => (
+                        <InfoCell key={f.key} label={f.label} value={f.value} mono />
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 {/* User Info */}
                 <section>
@@ -484,9 +524,9 @@ function CaseModal({ caseId, onClose, onUpdate }) {
                   </div>
                 </section>
 
-                {/* Customer Details */}
+                {/* Vendor / Party Details */}
                 <section>
-                  <Sh dot="bg-blue-500" label="Customer Details" />
+                  <Sh dot="bg-blue-500" label="Vendor Details" />
                   <div className="grid grid-cols-4 gap-3">
                     <InfoCell label="ID" value={d.customerDetails.id} mono />
                     <InfoCell label="NAME" value={d.customerDetails.name} cls="col-span-2" />
@@ -841,6 +881,28 @@ function CaseModal({ caseId, onClose, onUpdate }) {
 }
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
+function toCaseRow(a, idx) {
+  const caseId = a.caseId || a.case_id || `C-${8000 + idx}`;
+  const amountValue = Number(a.amount?.value ?? a.Amount ?? a.amount ?? 0) || 0;
+  const currency = a.amount?.currency || a.Currency || a.currency || "USD";
+  const title = `${a.vendorName || a.vendor || "Unknown Vendor"} - ${amountValue.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
+  return {
+    id: caseId,
+    riskScore: a.riskScore || a.risk_score || 0,
+    amountValue,
+    amountCurrency: currency,
+    title,
+    ruleName: a.ruleName || a.rule_name || "SAP Detection Rule",
+    ruleId: a.ruleId || a.rule_id || "",
+    environment: "PRODUCTION",
+    status: a.status || a.caseStatus || "New",
+    closureStatus: a.closureStatus || null,
+    assignee: a.assignee || "Unassigned",
+    createdAt: new Date(a.detectedAt || a.detected_at).toLocaleString(),
+    _anomaly: a,
+  };
+}
+
 export default function CaseManagement() {
   const location = useLocation();
   const [cases, setCases] = useState([]);
@@ -850,46 +912,82 @@ export default function CaseManagement() {
   const [closureF, setClosureF] = useState("All Resolutions");
   const [selected, setSelected] = useState(null);
   const [checked, setChecked] = useState(new Set());
+  const [riskConfigs, setRiskConfigs] = useState(() => loadRiskConfigs());
+  const [rules, setRules] = useState([]);
+  const [selectedRuleId, setSelectedRuleId] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generateMsg, setGenerateMsg] = useState("");
+
+  const selectedRule = rules.find((r) => r.id === selectedRuleId);
+
+  const loadCases = useCallback(async (ruleId) => {
+    setLoading(true);
+    try {
+      const json = await fetchAnomaliesListAPI({ ruleId, limit: 1000 });
+      if (json.status === "success" && json.anomalies) {
+        setCases(json.anomalies.map(toCaseRow));
+      } else {
+        setCases([]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch anomalies:", err);
+      setCases([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    // Support navigation from dashboard with pre-set status filter
     if (location.state?.statusFilter) setStatusF(location.state.statusFilter);
-    
-    // Fetch stored anomalies from database via API endpoint
-    setLoading(true);
-    fetch(`/sap/anomalies/list/?limit=1000`)
-      .then(res => res.json())
-      .then(json => {
-        if (json.status === 'success' && json.anomalies) {
-          // Transform anomalies into case format
-          const transformedCases = json.anomalies.map((a, idx) => {
-            // Auto-generate Case ID if not present
-            const caseId = a.caseId || a.case_id || `C-${8000 + idx}`;
-            const title = `${a.vendorName || a.vendor_name || 'Unknown Vendor'} - ${parseFloat(a.amount).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${a.currency}`;
-            
-            return {
-              id: caseId,
-              riskScore: a.riskScore || a.risk_score || 0,
-              title: title,
-              ruleName: "Duplicate Invoice Detection",
-              ruleId: "RULE-DUPLICATE-INV",
-              environment: "PRODUCTION",
-              status: "New",
-              closureStatus: null,
-              assignee: "Unassigned",
-              createdAt: new Date(a.detectedAt || a.detected_at).toLocaleString(),
-              // Keep original anomaly data for detail modal
-              _anomaly: a
-            };
-          });
-          setCases(transformedCases);
-        }
-        setLoading(false);
+    fetchRulesAPI()
+      .then((r) => {
+        const list = r.data || [];
+        setRules(list);
+        const preset = location.state?.ruleId || "";
+        setSelectedRuleId(preset);
       })
-      .catch(err => {
-        console.error('Failed to fetch anomalies:', err);
-        setLoading(false);
-      });
+      .catch((err) => console.error("Failed to fetch rules:", err));
+  }, []);
+
+  useEffect(() => {
+    loadCases(selectedRuleId || undefined);
+  }, [selectedRuleId, loadCases]);
+
+  const handleGenerate = async () => {
+    if (!selectedRuleId) {
+      setGenerateMsg("Select a rule first");
+      return;
+    }
+    setGenerating(true);
+    setGenerateMsg("");
+    try {
+      const result = await generateCasesFromRuleAPI(selectedRuleId);
+      if (result.status === "success") {
+        setGenerateMsg(
+          `Generated ${result.count || 0} cases from ${result.ruleName || "rule"}`
+          + (result.odata?.version ? ` (${result.odata.version})` : "")
+        );
+        await loadCases(selectedRuleId);
+      } else {
+        setGenerateMsg(result.message || "Failed to generate cases");
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || "Failed to generate cases";
+      setGenerateMsg(msg);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // Listen for risk config changes
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === RISK_CONFIG_STORAGE_KEY) {
+        setRiskConfigs(loadRiskConfigs());
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const filtered = cases.filter(c => {
@@ -914,12 +1012,42 @@ export default function CaseManagement() {
           <style>{`.no-scroll::-webkit-scrollbar{display:none}`}</style>
           <div className="no-scroll max-w-7xl mx-auto px-2 py-8 space-y-4">
 
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-[17px] font-semibold text-[var(--text)]">Detected Anomalies - Duplicate Invoice Investigation</h1>
-                <p className="text-[12px] text-[var(--muted)] mt-0.5">Live detected duplicate invoices from SAP OData endpoint</p>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="text-[17px] font-semibold text-[var(--text)]">Detected Anomalies</h1>
+                <p className="text-[12px] text-[var(--muted)] mt-0.5">
+                  {selectedRule
+                    ? `Cases for ${selectedRule.name} — generate from the rule's SAP OData service`
+                    : "Select a rule, then generate cases from its SAP OData endpoint"}
+                </p>
+                {generateMsg && (
+                  <p className="text-[11px] text-blue-300 mt-1 break-all">{generateMsg}</p>
+                )}
               </div>
-              <span className="text-[12px] font-semibold text-[var(--text)] px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)]">{cases.length} Total Anomalies</span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <select
+                  value={selectedRuleId}
+                  onChange={(e) => { setSelectedRuleId(e.target.value); setGenerateMsg(""); }}
+                  className={`${selCls} max-w-[280px]`}
+                >
+                  <option value="">All rules</option>
+                  {rules.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating || !selectedRuleId}
+                  className="px-3.5 py-2 rounded-lg bg-[var(--primary)] text-white text-[12px] font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity whitespace-nowrap"
+                >
+                  {generating ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <CircleNotch size={13} className="animate-spin" /> Hitting SAP...
+                    </span>
+                  ) : "Generate Cases"}
+                </button>
+                <span className="text-[12px] font-semibold text-[var(--text)] px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)]">{cases.length} Total</span>
+              </div>
             </div>
 
             <div className="flex items-center gap-2.5">
@@ -964,14 +1092,25 @@ export default function CaseManagement() {
                   <tbody className="divide-y divide-[var(--border)]">
                     {filtered.length === 0 && <tr><td colSpan={8} className="px-4 py-12 text-center text-[var(--muted)] text-sm">No cases match your filters.</td></tr>}
                     {filtered.map(c => (
+                      (() => {
+                        const matchedRiskLevel = resolveRiskLevelByAmount(c.amountValue, riskConfigs);
+                        return (
                       <tr key={c.id} onClick={() => setSelected(c.id)}
                         className={`cursor-pointer transition-colors ${checked.has(c.id) ? "bg-[var(--primary)]/5" : "hover:bg-white/[0.025]"}`}>
                         <td className="px-4 py-3.5" onClick={e => { e.stopPropagation(); toggleCheck(c.id); }}>
                           <input type="checkbox" checked={checked.has(c.id)} onChange={() => toggleCheck(c.id)} className="w-4 h-4 rounded border-gray-600 cursor-pointer accent-[var(--primary)]" />
                         </td>
-                        <td className="px-4 py-3.5"><span className="text-[12px] font-mono font-medium text-blue-400">{c.id}</span></td>
-                        <td className="px-4 py-3.5"><span className={`text-[14px] font-bold ${RISK_COLOR(c.riskScore)}`}>{c.riskScore}</span></td>
-                        <td className="px-4 py-3.5 max-w-[280px]">
+                        <td className="px-4 py-3.5"><span className="text-[12px] font-mono font-medium text-[var(--text)]">{c.id}</span></td>
+                        <td className="px-4 py-3.5">
+                          {matchedRiskLevel ? (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${RISK_LEVEL_BADGE[matchedRiskLevel]}`}>
+                              {matchedRiskLevel}
+                            </span>
+                          ) : (
+                            <span className={`text-[14px] font-bold ${RISK_COLOR(c.riskScore)}`}>{c.riskScore}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 max-w-[200px]">
                           <p className="text-[13px] font-medium text-[var(--text)] truncate">{c.title}</p>
                           <p className="text-[10px] text-[var(--muted)]">{c.createdAt}</p>
                         </td>
@@ -983,6 +1122,8 @@ export default function CaseManagement() {
                         <td className="px-4 py-3.5">{c.closureStatus ? <span className="text-[12px] text-[var(--text)]">{c.closureStatus}</span> : <span className="text-[12px] text-[var(--muted)]">—</span>}</td>
                         <td className="px-4 py-3.5"><AssigneeChip name={c.assignee} /></td>
                       </tr>
+                        );
+                      })()
                     ))}
                   </tbody>
                 </table>
