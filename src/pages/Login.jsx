@@ -84,8 +84,8 @@ function Login() {
         {/* Demo creds */}
         <div className="mt-6 text-xs text-gray-400 space-y-1">
           <p>Demo:</p>
-          <p>admin@corp.com / any</p>
-          <p>analyst@corp.com / any</p>
+          <p>admin@corp.com / admin</p>
+          <p>analyst@corp.com / analyst</p>
         </div>
       </div>
     </div>

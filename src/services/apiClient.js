@@ -29,8 +29,9 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Clear auth on 401
+    const reqUrl = error.config?.url || "";
+    const isLoginRequest = reqUrl.includes("/sap/security/login/");
+    if (error.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
