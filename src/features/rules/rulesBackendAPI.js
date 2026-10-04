@@ -41,7 +41,7 @@ export const DEPLOY_ENVIRONMENTS = [
     name: "Development",
   },
   {
-    id: "QAS",
+    id: "QA",
     name: "QA",
   },
   {
@@ -185,6 +185,54 @@ export const generateTestDataAPI = async (cdsSource, ruleContext = "") => {
   return {
     success: true,
     output: response.data?.data?.output || "",
+  };
+};
+
+export const createRuleScheduleAPI = async (ruleIds, config) => {
+  const payload = {
+    ruleIds,
+    type: config.type,
+    environment: config.environment,
+    fromDate: config.fromDate || null,
+    toDate: config.toDate || null,
+    frequency: config.frequency || null,
+    dayOfWeek: config.dayOfWeek || null,
+    dayOfMonth: config.dayOfMonth ? Number(config.dayOfMonth) : null,
+    endDate: config.endDate || null,
+  };
+
+  if (config.parameterValues && Object.keys(config.parameterValues).length > 0) {
+    payload.parameterValues = config.parameterValues;
+  }
+
+  try {
+    const response = await apiClient.post(`${API_BASE}/schedules/`, payload);
+    if (response.data?.status === "error") {
+      return { success: false, message: response.data.message || "Failed to create schedule" };
+    }
+    return {
+      success: true,
+      data: response.data?.data,
+      message: response.data?.message || "Schedule created successfully",
+    };
+  } catch (e) {
+    const message = e.response?.data?.message || e.message || "Failed to create schedule";
+    return { success: false, message };
+  }
+};
+
+export const fetchScheduleParameterPreviewAPI = async (ruleIds, environment) => {
+  const params = new URLSearchParams({
+    ruleIds: ruleIds.join(","),
+    environment,
+  });
+  const response = await apiClient.get(
+    `${API_BASE}/schedules/parameter-preview/?${params.toString()}`
+  );
+  return {
+    success: response.data?.status === "success",
+    data: response.data?.data || {},
+    message: response.data?.message,
   };
 };
 

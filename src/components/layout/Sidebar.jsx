@@ -10,19 +10,26 @@ import {
   FolderSimple,
   ShieldCheck,
   HardDrive,
+  CalendarBlank,
 } from "@phosphor-icons/react";
+import { useAppSelector } from "../../app/hooks";
 
-const menu = [
-  { name: "Dashboard",            path: "/",         icon: SquaresFour },
-  { name: "Rule Library",         path: "/rules",    icon: Books       },
-  { name: "AI Rule Architect",    path: "/architect",icon: GitBranch   },
-  { name: "Case Management",      path: "/cases",    icon: FolderSimple},
-  { name: "Security",             path: "/security", icon: ShieldCheck },
-  { name: "Configurations",       path: "/servers",  icon: HardDrive   },
+const ALL_MENU = [
+  { name: "Dashboard",            path: "/",         icon: SquaresFour,  roles: null },
+  { name: "Rule Library",         path: "/rules",    icon: Books,        roles: null },
+  { name: "AI Rule Architect",    path: "/architect",icon: GitBranch,    roles: null },
+  { name: "Case Management",      path: "/cases",    icon: FolderSimple, roles: null },
+  { name: "Schedules",            path: "/schedules",icon: CalendarBlank,roles: ["Admin", "Analyst"] },
+  { name: "Security",             path: "/security", icon: ShieldCheck,  roles: null },
+  { name: "Configurations",       path: "/servers",  icon: HardDrive,    roles: null },
 ];
 
 export default function Sidebar() {
   const location = useLocation();
+  const user = useAppSelector((s) => s.auth.user);
+  const menu = ALL_MENU.filter(
+    (item) => !item.roles || item.roles.includes(user?.role)
+  );
 
   return (
     <div className="w-56 min-h-screen flex-shrink-0 bg-[var(--card)] border-r border-[var(--border)] flex flex-col">

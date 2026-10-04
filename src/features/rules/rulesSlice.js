@@ -12,7 +12,7 @@ import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import {
   fetchRulesAPI, fetchEnvironmentsAPI,
   deployRulesAPI, activateRulesAPI, deactivateRulesAPI,
-  runSimulationAPI, deployRuleToEnvAPI, createSchedulesAPI,
+  runSimulationAPI, deployRuleToEnvAPI, createSchedulesAPI, createRuleScheduleAPI,
 } from "./rulesBackendAPI";
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
@@ -62,6 +62,19 @@ export const createSchedules = createAsyncThunk("rules/createSchedules", async (
   }
 });
 
+export const createRuleSchedule = createAsyncThunk(
+  "rules/createSchedule",
+  async ({ ruleIds, config }, { rejectWithValue }) => {
+    try {
+      const r = await createRuleScheduleAPI(ruleIds, config);
+      if (!r.success) return rejectWithValue(r.message || "Failed to create schedule");
+      return { data: r.data, message: r.message };
+    } catch (e) {
+      return rejectWithValue(e.response?.data?.message || e.message);
+    }
+  }
+);
+
 // ─── Simulation State Machine ─────────────────────────────────────────────────
 const initSim = {
   step: 0, mode: null, selectedEnv: null,
@@ -81,10 +94,24 @@ const rulesSlice = createSlice({
     bulkLoading: false, bulkError: null,
     deployTarget: null, deployLoading: false, deployError: null,
     deploySuccessMsg: "",
-    scheduleConfig: { type: "ONE_TIME", environment: "", fromDate: "", runTime: "", scheduleNow: false },
+    scheduleConfig: {
+      type: "ONE_TIME",
+      environment: "",
+      fromDate: "",
+      toDate: "",
+      runTime: "",
+      scheduleNow: false,
+      frequency: "",
+      dayOfWeek: "",
+      dayOfMonth: "",
+      endDate: "",
+      parameterValues: {},
+    },
     scheduleError: "",
     scheduleLoading: false,
     scheduleSuccessMsg: "",
+    scheduleResultSuccess: false,
+    scheduleResultMsg: "",
     simulation: { ...initSim },
   },
 
@@ -133,6 +160,8 @@ const rulesSlice = createSlice({
       s.deploySuccessMsg = "";
       s.scheduleError = "";
       s.scheduleSuccessMsg = "";
+      s.scheduleResultSuccess = false;
+      s.scheduleResultMsg = "";
     },
 
     // ── Simulation Control ────────────────────────────────────────────────────
@@ -227,14 +256,28 @@ const rulesSlice = createSlice({
       const rule = s.list.find(r => r.id === ruleId);
       if (rule) { rule.status = "DEPLOYED"; rule.lifecycle = "DEPLOYED"; rule.deployedEnv = environment; }
       if (s.activeRule?.id === ruleId) { s.activeRule = { ...rule }; }
-      const envLabel = { DEV: "DEV environment", QAS: "QA environment", PROD: "PRODUCTION environment" };
+      const envLabel = { DEV: "DEV environment", QA: "QA environment", QAS: "QA environment", PROD: "PRODUCTION environment" };
       s.deploySuccessMsg = `${s.activeRule?.name || ""} has been deployed to ${envLabel[environment] || environment}.\nStatus: DEPLOYED\nThe active rule has been archived to the selected environment.`;
       s.modalType   = "DEPLOY_SUCCESS";
       s.deployTarget = null;
     });
     b.addCase(deployRuleToEnv.rejected, (s, a) => { s.deployLoading = false; s.deployError = a.payload; });
 
-    // ── Create schedules ──────────────────────────────────────────────────────
+    const emptyScheduleConfig = {
+      type: "ONE_TIME",
+      environment: "",
+      fromDate: "",
+      toDate: "",
+      runTime: "",
+      scheduleNow: false,
+      frequency: "",
+      dayOfWeek: "",
+      dayOfMonth: "",
+      endDate: "",
+      parameterValues: {},
+    };
+
+    // ── Create one-time schedules ─────────────────────────────────────────────
     b.addCase(createSchedules.pending, (s) => {
       s.scheduleLoading = true;
       s.scheduleError = "";
@@ -245,12 +288,28 @@ const rulesSlice = createSlice({
       const count = a.payload?.data?.length || 0;
       s.scheduleSuccessMsg = `${count} one-time schedule(s) created successfully.`;
       s.modalType = "SCHEDULE_SUCCESS";
-      s.scheduleConfig = { type: "ONE_TIME", environment: "", fromDate: "", runTime: "", scheduleNow: false };
+      s.scheduleConfig = { ...emptyScheduleConfig };
       s.selected = [];
     });
     b.addCase(createSchedules.rejected, (s, a) => {
       s.scheduleLoading = false;
       s.scheduleError = a.payload || "Failed to create schedule";
+    });
+
+    // ── Recurring / role-based schedule ───────────────────────────────────────
+    b.addCase(createRuleSchedule.pending, (s) => { s.scheduleLoading = true; s.scheduleError = ""; });
+    b.addCase(createRuleSchedule.fulfilled, (s, a) => {
+      s.scheduleLoading = false;
+      s.scheduleResultSuccess = true;
+      s.scheduleResultMsg = a.payload?.message || "Schedule created successfully";
+      s.modalType = "SCHEDULE_RESULT";
+      s.scheduleConfig = { ...emptyScheduleConfig };
+    });
+    b.addCase(createRuleSchedule.rejected, (s, a) => {
+      s.scheduleLoading = false;
+      s.scheduleResultSuccess = false;
+      s.scheduleResultMsg = a.payload || "Failed to create schedule";
+      s.modalType = "SCHEDULE_RESULT";
     });
   },
 });
